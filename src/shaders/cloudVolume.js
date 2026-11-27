@@ -200,3 +200,32 @@ void main() {
   gl_FragColor = vec4(col, alpha);
 }
 `;
+
+// The half-resolution march put over the full frame: colour filtered, the
+// depth of the nearest texel, so the depth test against the ground works at
+// full resolution (at worst a cloud's edge along a ridge is half-res).
+export const CLOUD_COMPOSITE_VERT = /* glsl */ `
+varying vec2 vUv;
+
+void main() {
+  vUv = position.xy * 0.5 + 0.5;
+  gl_Position = vec4(position.xy, 1.0, 1.0);
+}
+`;
+
+export const CLOUD_COMPOSITE_FRAG = /* glsl */ `
+precision highp float;
+
+uniform sampler2D tCloud;
+uniform sampler2D tCloudDepth;
+varying vec2 vUv;
+
+void main() {
+  vec4 cloud = texture2D(tCloud, vUv);
+  if (cloud.a < 0.002) {
+    discard;
+  }
+  gl_FragDepth = texture2D(tCloudDepth, vUv).r;
+  gl_FragColor = cloud;
+}
+`;

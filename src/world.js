@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { createTerrain } from './terrain.js';
 import { CLOUDS_VERT, CLOUDS_FRAG } from './shaders/clouds.js';
-import { CLOUD_VOLUME_VERT, CLOUD_VOLUME_FRAG } from './shaders/cloudVolume.js';
+import { CLOUD_VOLUME_VERT, CLOUD_VOLUME_FRAG, CLOUD_COMPOSITE_VERT, CLOUD_COMPOSITE_FRAG } from './shaders/cloudVolume.js';
 import { ATMO_VERT, ATMO_FRAG } from './shaders/atmosphere.js';
 import { RINGS_VERT, RINGS_FRAG } from './shaders/rings.js';
 import { SKY_VERT, SKY_FRAG } from './shaders/sky.js';
@@ -62,6 +62,10 @@ export function createWorld(uniforms, heightmap) {
 
   // --- cloud layer as a volume (close to it, in flight) ---
   // A screen-covering quad; the shader marches the rays through the layer.
+  // It is drawn at half resolution into a target of its own (scenePass.js):
+  // colour and alpha, and the depth of the cloud in the depth buffer. The
+  // march is the costliest thing in a cloudy flight and the clouds are soft,
+  // so a quarter of the pixels is enough.
   const cloudVolume = new THREE.Mesh(
     new THREE.PlaneGeometry(2, 2),
     new THREE.ShaderMaterial({
@@ -69,6 +73,27 @@ export function createWorld(uniforms, heightmap) {
       uniforms,
       vertexShader: CLOUD_VOLUME_VERT,
       fragmentShader: CLOUD_VOLUME_FRAG,
+      // Into a cleared target: premultiplied colour and alpha as they are, and
+      // the depth the fragment writes (the depth test must be on for that).
+      blending: THREE.NoBlending,
+      depthFunc: THREE.AlwaysDepth,
+      depthWrite: true,
+    }),
+  );
+  cloudVolume.frustumCulled = false;
+  cloudVolume.visible = false;
+  cloudVolume.layers.set(LAYER.NEAR);
+  const volumeScene = new THREE.Scene();
+  volumeScene.add(cloudVolume);
+  // ...and put over the near scene at full resolution: a quad that copies the
+  // colour and the cloud's depth, so the ground in front of a cloud hides it.
+  const cloudComposite = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      name: 'CloudComposite',
+      uniforms: { tCloud: { value: null }, tCloudDepth: { value: null } },
+      vertexShader: CLOUD_COMPOSITE_VERT,
+      fragmentShader: CLOUD_COMPOSITE_FRAG,
       // premultiplied colour over what is behind
       blending: THREE.CustomBlending,
       blendSrc: THREE.OneFactor,
@@ -77,11 +102,11 @@ export function createWorld(uniforms, heightmap) {
       depthWrite: false,
     }),
   );
-  cloudVolume.frustumCulled = false;
-  cloudVolume.renderOrder = 2;
-  cloudVolume.visible = false;
-  cloudVolume.layers.set(LAYER.NEAR);
-  scene.add(cloudVolume);
+  cloudComposite.frustumCulled = false;
+  cloudComposite.renderOrder = 2;
+  cloudComposite.visible = false;
+  cloudComposite.layers.set(LAYER.NEAR);
+  scene.add(cloudComposite);
 
   // --- atmospheric scattering halo ---
   // Back faces of the shell cover the whole disc, so one pass handles both the
@@ -139,5 +164,5 @@ export function createWorld(uniforms, heightmap) {
   rings.add(ringFar, ringNear);
   scene.add(rings);
 
-  return { scene, sky, planet, terrain, clouds, cloudVolume, atmosphere, rings };
+  return { scene, sky, planet, terrain, clouds, cloudVolume, volumeScene, cloudComposite, atmosphere, rings };
 }

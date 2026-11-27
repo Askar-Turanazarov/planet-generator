@@ -121,6 +121,7 @@ async function start() {
   hdrTarget.depthTexture = new THREE.DepthTexture(4, 4);
   const composer = new EffectComposer(renderer, hdrTarget);
   const scenePass = new ScenePass(world.scene, camera);
+  scenePass.volume = { scene: world.volumeScene, mesh: world.cloudVolume, composite: world.cloudComposite };
   composer.addPass(scenePass);
   // Tight threshold: only the sun, the lit limb, lava and city lights bloom.
   const bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.35, 0.4, 0.85);
