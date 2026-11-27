@@ -513,6 +513,14 @@ float ringCoord(float r) {
   return (r - uRingInner) / (uRingOuter - uRingInner);
 }
 
+// Normal optical depth from the baked density. Saturn's rings are contrasty:
+// the B ring reaches tau 2-5 (its shadow on the planet is nearly black), the
+// A ring 0.4-0.9, the C ring and the Cassini Division only about 0.1. A
+// straight dens * opacity squeezes that range, so dense bands get extra depth.
+float ringTau(float dens) {
+  return uRingOpacity * dens * (0.35 + 1.9 * dens);
+}
+
 // Fraction of sunlight reaching world-space point P on the planet once the
 // rings have had their say: intersect the sun ray with the ring plane.
 float ringShadow(vec3 P) {
@@ -531,10 +539,13 @@ float ringShadow(vec3 P) {
   if (u <= 0.0 || u >= 1.0) {
     return 1.0;
   }
-  // A slightly blurred level: the sun is not a point, so shadows are soft.
-  float dens = textureLod(uRingTex, vec2(u, 0.5), 3.0).r;
-  float occ = 1.0 - exp(-dens * uRingOpacity / max(abs(dn), 0.12));
-  return 1.0 - 0.9 * occ * uRingsOn;
+  // A slightly blurred level: the sun is not a point, so shadows are soft
+  // (but only just: seen from a planet, the sun is a small disc).
+  float dens = textureLod(uRingTex, vec2(u, 0.5), 1.5).r;
+  // Sunlight crosses the ring along a slant path: the lower the sun stands
+  // over the rings, the darker their shadow.
+  float occ = 1.0 - exp(-ringTau(dens) / max(abs(dn), 0.04));
+  return 1.0 - occ * uRingsOn;
 }
 `;
 

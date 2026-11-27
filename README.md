@@ -28,7 +28,13 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
 - **Post-processing**: HDR pipeline, bloom, ACES filmic tone mapping, dithering.
 - **Surface probe**: a click or a tap on the planet drops a marker and opens a card with what is
   there: the kind of terrain (29 kinds, named to suit each world), an estimate of height or depth in
-  km and of temperature in °C, humidity, coordinates and how high the sun stands.
+  km and of temperature in °C, humidity, coordinates and how high the sun stands. **Why here** says
+  in a line or two what made the place so (the snow line, the dry belt, the waterline), and **What
+  if** names the slider that would change it, with a **Try it** button.
+- **Guided tours**: five routes in the **Worlds** tab (Sky and sunset, Ring shadows, Ice and
+  deserts, Where people live, Kinds of worlds). Each one moves the camera, the sun and the sliders
+  step by step, ends with three questions, and offers to bring your own world back. Progress is kept
+  in the browser.
 - **Links to worlds**: the address always holds the world on screen (archetype, seed, changed sliders,
   camera, marker). **Share** sends it from a phone or copies it on a computer; opening the link brings
   the same view back.
@@ -166,6 +172,8 @@ src/hud.js                 panels, tabs, sliders, telemetry, language switch, ho
 src/probe.js               reads the terrain caches under the marker on the GPU
 src/survey.js              turns a probe reading into terrain kind, words and figures
 src/cards.js               the probe card and the toast
+src/tours.js               the five tour routes, as data
+src/tour.js                runs a tour: steps, questions, progress, the way back
 src/link.js                the world in the address: encode, decode, write back
 src/shaders/               GLSL: shared chunks, bake passes, planet, probe, clouds, atmosphere, rings, sky
 tools/serve.mjs            static dev server
@@ -238,7 +246,13 @@ oʻzgaradi.
 - **Tasvirga ishlov berish**: HDR, blum (yorugʻlik halqasi), ACES ton xaritalash, dizering.
 - **Sirt zondi**: sayyorani bosish yoki unga tegish sirtga belgi qoʻyadi va oʻsha nuqta haqida kartochka
   ochadi: joy turi (29 xil, har bir olamga mos nomlar bilan), balandlik yoki chuqurlik (km) va harorat
-  (°C) taxmini, namlik, koordinatalar va quyosh balandligi.
+  (°C) taxmini, namlik, koordinatalar va quyosh balandligi. **Nega bu yerda shunday** joyni nima
+  shunday qilganini bir-ikki qatorda aytadi (qor chegarasi, quruq mintaqa, suv chizigʻi), **Nima
+  boʻlardi** esa uni oʻzgartiradigan slayderni koʻrsatadi va **Sinab koʻrish** tugmasini beradi.
+- **Ekskursiyalar**: **Olamlar** boʻlimida beshta yoʻnalish (Osmon va shafaq, Halqalar soyasi, Muz
+  va choʻllar, Odamlar qayerda yashaydi, Dunyolar qanday boʻladi). Har biri kamera, quyosh va
+  slayderlarni qadam-baqadam suradi, oxirida uchta savol beradi va oʻz olamingni qaytarishni taklif
+  qiladi. Natijalar brauzerda saqlanadi.
 - **Olamga havola**: manzil satrida doim ekrandagi olam turadi (sayyora turi, kalit, oʻzgargan slayderlar,
   kamera, belgi). **Ulashish** telefonda havolani yuboradi, kompyuterda nusxalaydi; havolani ochish
   xuddi shu koʻrinishni qaytaradi.
@@ -381,6 +395,8 @@ src/hud.js                 panellar, boʻlimlar, slayderlar, telemetriya, til ta
 src/probe.js               belgi ostidagi relyef keshlarini GPU da oʻqiydi
 src/survey.js              zond oʻlchovini joy turi, soʻzlar va raqamlarga aylantiradi
 src/cards.js               zond kartochkasi va qisqa xabar
+src/tours.js               beshta ekskursiya yoʻnalishi, maʼlumot sifatida
+src/tour.js                ekskursiyani olib boradi: qadamlar, savollar, natija, olamni qaytarish
 src/link.js                manzildagi olam: yozish, oʻqish, yangilash
 src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, zond, bulutlar, atmosfera, halqalar, osmon
 tools/serve.mjs            statik ishlab chiqish serveri
@@ -450,7 +466,12 @@ barcha huquqlar muallifda qoladi.
 - **Пост-обработка**: HDR, блум, тональная компрессия ACES, дизеринг.
 - **Зонд**: щелчок или касание по планете ставит метку и открывает карточку с тем, что там: тип
   местности (29 типов, названия под каждый мир), оценка высоты или глубины в км и температуры в °C,
-  влажность, координаты и высота солнца.
+  влажность, координаты и высота солнца. **Почему здесь так** в одной-двух строках объясняет, что
+  сделало место таким (снеговая линия, сухой пояс, урез воды), а **А что если** называет слайдер,
+  который это изменит, с кнопкой **Попробовать**.
+- **Экскурсии**: пять маршрутов во вкладке **Миры** (Небо и закат, Тени колец, Лёд и пустыни, Где
+  живут люди, Какими бывают миры). Каждый шаг за шагом ведёт камеру, солнце и слайдеры, в конце
+  задаёт три вопроса и предлагает вернуть твой мир. Прогресс хранится в браузере.
 - **Ссылки на миры**: в адресе страницы всегда записан мир на экране (архетип, ключ, изменённые
   слайдеры, камера, метка). **Поделиться** отправляет ссылку с телефона или копирует её на компьютере;
   по ссылке открывается тот же вид.
@@ -591,6 +612,8 @@ src/hud.js                 панели, вкладки, слайдеры, те�
 src/probe.js               читает кэши рельефа под меткой на GPU
 src/survey.js              превращает показания зонда в тип местности, слова и числа
 src/cards.js               карточка зонда и всплывающее уведомление
+src/tours.js               пять маршрутов экскурсий в виде данных
+src/tour.js                ведёт экскурсию: шаги, вопросы, прогресс, возврат мира
 src/link.js                мир в адресе страницы: запись, чтение, обновление
 src/shaders/               GLSL: общие блоки, запекание, планета, зонд, облака, атмосфера, кольца, небо
 tools/serve.mjs            статический сервер для разработки

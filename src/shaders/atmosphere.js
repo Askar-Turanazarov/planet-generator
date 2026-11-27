@@ -6,7 +6,7 @@
 //   - an amber-to-crimson band at the terminator (the sun ray is long there,
 //     so blue has been scattered away before the light arrives),
 //   - black on the night side (the planet blocks the sun ray entirely).
-import { GLSL_COMMON } from './chunks.js';
+import { GLSL_COMMON, GLSL_RINGS } from './chunks.js';
 
 export const ATMO_VERT = /* glsl */ `
 precision highp float;
@@ -22,6 +22,7 @@ void main() {
 
 export const ATMO_FRAG = /* glsl */ `
 ${GLSL_COMMON}
+${GLSL_RINGS}
 
 uniform float uAtmoSun;       // radiance scale of the in-scattered light
 uniform sampler2D uAtmoLut;   // optical depth towards the sun: (sun zenith cosine, altitude) -> (Rayleigh, Mie)
@@ -110,7 +111,9 @@ void main() {
     vec2 lutUV = vec2((muS + 0.4) / 1.4, hgt / (R_ATMO - R_PLANET));
     vec2 sunOD = textureLod(uAtmoLut, lutUV, 0.0).rg;
 
-    vec3 att = exp(-(extR * (odR + sunOD.x) + extM * (odM + sunOD.y)));
+    // The rings shade the air too, or their shadow would sit under a sunlit
+    // blue haze.
+    vec3 att = exp(-(extR * (odR + sunOD.x) + extM * (odM + sunOD.y))) * ringShadow(pos);
     sumR += att * dR;
     sumM += att * dM;
   }

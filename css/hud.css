@@ -93,6 +93,12 @@ body {
   pointer-events: none;
 }
 
+/* During a tour the planet is framed above its card, not behind it
+   (src/cards.js keeps --card-h up to date). */
+body.touring.has-card #frame {
+  bottom: calc(58px + var(--card-h, 0px) + 12px);
+}
+
 /* ---------- layout ------------------------------------------------------ */
 
 #hud {
@@ -815,6 +821,126 @@ body.has-card .hints {
   letter-spacing: 0.04em;
 }
 
+/* Narration of a tour step, or a question: the main text of its card. */
+.card-body {
+  margin: 11px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+  text-wrap: pretty;
+}
+
+/* "Why" and "What if": a small label over a paragraph. */
+.card-section {
+  margin: 12px 0 0;
+  padding: 9px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.card-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.card-section p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-wrap: pretty;
+}
+
+/* Answers to a question, one per line. */
+.card-choices {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.card-choice,
+.card-action {
+  min-height: 32px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.card-choice:hover:not([disabled]),
+.card-action:hover:not([disabled]) {
+  background: var(--fill);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.card-choice:focus-visible,
+.card-action:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.card-choice[disabled],
+.card-action[disabled] {
+  cursor: default;
+}
+
+.card-choice.right {
+  border-color: rgba(140, 220, 160, 0.75);
+  box-shadow: inset 3px 0 0 rgba(140, 220, 160, 0.9);
+}
+
+.card-choice.wrong {
+  border-color: rgba(240, 140, 120, 0.7);
+  box-shadow: inset 3px 0 0 rgba(240, 140, 120, 0.85);
+  color: var(--ink-dim);
+}
+
+.card-choice.off {
+  color: var(--ink-faint);
+  border-color: var(--line-soft);
+}
+
+/* Buttons in a row; the primary one is filled. */
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.card-action {
+  flex: 1 1 auto;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+}
+
+.card-action.primary {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.92);
+  color: #0a0c10;
+}
+
+.card-action.primary:hover:not([disabled]) {
+  background: #fff;
+  border-color: #fff;
+}
+
+.card-action[disabled] {
+  opacity: 0.35;
+}
+
 /* Centred over the free part of the screen, near its top. */
 .toast {
   position: absolute;
@@ -957,6 +1083,10 @@ body.has-card .hints {
 
   body[data-sheet] {
     --free-bottom: calc(var(--safe-b) + var(--tab-h) + var(--sheet-h));
+  }
+
+  body.touring.has-card #frame {
+    bottom: calc(var(--free-bottom) + var(--card-h, 0px) + 16px);
   }
 
   .lang,
@@ -1209,6 +1339,12 @@ body.has-card .hints {
     transform: none;
   }
 
+  /* On its side the card stands to the left: the planet is framed beside it. */
+  body.touring.has-card #frame {
+    bottom: var(--free-bottom);
+    left: calc(var(--safe-l) + min(320px, 100% - var(--free-right) - var(--safe-l) - 24px) + 24px);
+  }
+
   /* The button sits in the head of the rail. */
   #hud-toggle {
     right: calc(var(--safe-r) + (var(--rail-w) - 40px) / 2);
@@ -1288,6 +1424,11 @@ body.has-card .hints {
   .card-close {
     width: 40px;
     height: 40px;
+  }
+
+  .card-choice,
+  .card-action {
+    min-height: 42px;
   }
 
   .kicker,

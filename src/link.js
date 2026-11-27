@@ -1,6 +1,7 @@
 // The world on screen, written into the address of the page and read back.
 //
 //   #v=1&w=terran&s=4217&sea=0.62&c=0.612,0.220,0.758,3.60&a=1.234&m=41.30,69.24
+//   #v=1&tour=sky&step=3          (a step of a guided tour, see tours.js)
 //
 // Only what differs from the archetype goes in, which keeps links short and
 // lets them survive a later change of an archetype's defaults. The hash, not
@@ -56,6 +57,8 @@ const same = (a, b, digits) => Math.abs(a - b) < 0.5 * Math.pow(10, -digits) + 1
  *   marker   { lat, lon } in degrees, or null
  */
 export function encodeView(view) {
+  // A tour step is a place of its own: the route says what is on screen.
+  if (view.tour) return `#v=${LINK_VERSION}&tour=${view.tour.id}&step=${view.tour.step}`;
   const parts = [`v=${LINK_VERSION}`, `w=${view.preset.id}`];
   if (view.seed !== view.preset.seed) parts.push(`s=${view.seed}`);
   for (const key in SLIDERS) {
@@ -94,6 +97,13 @@ export function decodeView(hash, presets) {
     if (at > 0) params.set(part.slice(0, at), decodeURIComponent(part.slice(at + 1)));
   }
   if (Number(params.get('v')) !== LINK_VERSION) return null;
+  // #v=1&tour=sky&step=3 (steps from 1; "quiz" for the questions).
+  if (params.has('tour')) {
+    const id = params.get('tour');
+    if (!/^[a-z]+$/.test(id)) return null;
+    const step = params.get('step') === 'quiz' ? 'quiz' : Math.max(Math.floor(Number(params.get('step'))) || 1, 1) - 1;
+    return { tour: { id, step } };
+  }
   const preset = presets.find((p) => p.id === params.get('w'));
   if (!preset) return null;
 

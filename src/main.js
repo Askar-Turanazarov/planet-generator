@@ -11,6 +11,7 @@ import { PRESETS, SLIDER_KEYS } from './presets.js';
 import { PlanetState, parseSeed } from './state.js';
 import { decodeView, isModified, createLinkWriter } from './link.js';
 import { createCards } from './cards.js';
+import { createTours } from './tour.js';
 import { createProbe } from './probe.js';
 import { describePoint } from './survey.js';
 import { createWorld } from './world.js';
@@ -104,6 +105,7 @@ async function start() {
   // resolution, which halves the cost of the pass.
   const setBloomSize = bloom.setSize.bind(bloom);
   bloom.setSize = (width, height) => setBloomSize(Math.ceil(width / 2), Math.ceil(height / 2));
+  roundBloomKernels(bloom);
   composer.addPass(bloom);
   const output = new OutputPass();
   composer.addPass(output);
@@ -405,6 +407,7 @@ async function start() {
   // in the dark of a transition; the link must not wait for that.
   let presetIndex = 0;
   let worldSeed = PRESETS[0].seed;
+  let tours = null;                 // the tour player (created with the cards, below)
   // The address follows the screen (see link.js); every change calls touch().
   const link = createLinkWriter(describeView);
   const LINK_AFTER_FLIGHT = 2300;   // ms: a camera flight lasts 2 s
@@ -416,6 +419,7 @@ async function start() {
     i18n,
     on: {
       preset(index) {
+        if (tours.active) tours.abandon();
         const preset = PRESETS[index];
         presetIndex = index;
         worldSeed = preset.seed;
@@ -446,6 +450,7 @@ async function start() {
           return;
         }
         state.set(key, value);
+        if (key === 'sunAngle') tourSun = null;     // the user takes the sun over
         if (key !== 'sunAngle' && key !== 'rotSpeed') hud.setModified(true);
         link.touch();
       },
@@ -467,6 +472,7 @@ async function start() {
   });
 
   function reseed(seed) {
+    if (tours.active) tours.abandon();
     worldSeed = seed;
     hud.setSeed(seed);
     hud.setModified(true);
@@ -478,7 +484,11 @@ async function start() {
   // ------------------------------------------------------------------
   // The world in the address (link.js)
   // ------------------------------------------------------------------
+  /** What the address says: the tour step during a tour, else the world. */
   function describeView() {
+    return tours && tours.active ? { tour: tours.position } : worldView();
+  }
+  function worldView() {
     const sliders = {};
     for (const key of SLIDER_KEYS) sliders[key] = state.get(key);
     const view = rig.destination;
@@ -491,7 +501,8 @@ async function start() {
       rotSpeed: state.get('rotSpeed'),
       camera: { dir: view.dir.toArray(), dist: view.dist },
       spin: world.planet.rotation.y,
-      marker: marker.dir ? latLonOf(marker.dir) : null,
+      // A marker set by a tour is the tour's, not the user's.
+      marker: marker.dir && !marker.quiet ? latLonOf(marker.dir) : null,
     };
   }
 
@@ -535,7 +546,13 @@ async function start() {
   window.addEventListener('hashchange', () => {
     if (window.location.hash === link.current) return;
     const view = decodeView(window.location.hash, PRESETS);
-    if (view) applyView(view, false);
+    if (!view) return;
+    if (view.tour) {
+      tours.start(view.tour.id, view.tour.step);
+      return;
+    }
+    if (tours.active) tours.abandon();
+    applyView(view, false);
   });
 
   // ------------------------------------------------------------------
@@ -590,6 +607,7 @@ async function start() {
   const TAP_TIME = 300;             // ms a tap may last
   const marker = {
     dir: null,                      // planet space, unit length
+    quiet: false,                   // set by a tour: no probe card
     sample: null,
     clock: 0,
     node: document.getElementById('marker'),
@@ -624,7 +642,10 @@ async function start() {
     return {
       survey: preset.survey,
       presetIce: preset.sliders.ice,
+      presetCity: preset.sliders.cityLights,
       ice: state.cur.ice,
+      // Where the sliders are headed ("what if" starts from there, not from mid-glide).
+      target: { seaLevel: state.get('seaLevel'), ice: state.get('ice'), cityLights: state.get('cityLights') },
       seaLevel: uniforms.uSeaLevel.value,
       biomeDatum: uniforms.uBiomeDatum.value,
       lavaSea: state.cur.liquidEmissive > 0.3,
@@ -642,7 +663,29 @@ async function start() {
       landH: marker.sample.h0 - info.seaLevel,
       bioH: marker.sample.h0 - info.biomeDatum,
     };
-    return describePoint(sample, info, i18n);
+    const point = describePoint(sample, info, i18n);
+    const { t } = i18n;
+    const actions = [];
+    if (point.whatIf) {
+      const { key, value } = point.whatIf;
+      actions.push({ label: t('probe.try'), primary: true, run: () => trySlider(key, value) });
+    }
+    // Probed in the middle of a tour: the way back to it.
+    if (tours && tours.active) actions.push({ label: t('tour.resume'), run: () => tours.resume() });
+    return {
+      ...point,
+      why: { label: t('probe.why'), text: point.why },
+      hint: point.whatIf ? { label: t('probe.whatIf'), text: point.whatIf.text } : null,
+      actions,
+    };
+  }
+  /** "What if": move one slider, as if the user had dragged it. */
+  function trySlider(key, value) {
+    state.set(key, value);
+    hud.syncSliders({ [key]: value });
+    hud.setModified(true);
+    link.touch(LINK_AFTER_DRAG);
+    marker.clock = PROBE_INTERVAL;
   }
 
   function readGround() {
@@ -653,22 +696,32 @@ async function start() {
       // Dropped for a newer request, or the marker moved / went away meanwhile.
       if (!sample || marker.dir !== dir) return;
       marker.sample = sample;
-      cards.show(cardContent, { onClose: clearMarker });
+      // A tour's marker only points; the tour card says what is there.
+      if (!marker.quiet) cards.show(cardContent, { onClose: closeProbeCard });
     });
   }
-  function setMarker(dir) {
+  function closeProbeCard() {
+    clearMarker();
+    if (tours.active) tours.resume();
+  }
+  /** quiet: set by a tour, it shows a spot without opening the probe card. */
+  function setMarker(dir, quiet = false) {
     marker.dir = dir.normalize();
+    marker.quiet = quiet;
     marker.sample = null;
     marker.node.hidden = false;
     // Read on the next frame that may (see updateMarker): not from half-built caches.
     marker.clock = PROBE_INTERVAL;
   }
-  function clearMarker() {
+  /** Take the marker away; its probe card goes with it unless keepCard. */
+  function clearMarker(keepCard = false) {
     if (!marker.dir) return;
+    const quiet = marker.quiet;
     marker.dir = null;
+    marker.quiet = false;
     marker.sample = null;
     marker.node.hidden = true;
-    cards.hide();
+    if (!quiet && keepCard !== true) cards.hide();
     link.touch();
   }
 
@@ -728,6 +781,115 @@ async function start() {
     if (marker.clock >= PROBE_INTERVAL && !baker.busy && !dip) readGround();
   }
 
+  // ------------------------------------------------------------------
+  // Guided tours (tours.js: the routes, tour.js: the player)
+  // ------------------------------------------------------------------
+  const TOUR_FLIGHT = 2.4;          // s: camera and sun move together
+  let tourSun = null;               // { from, to, t }: the sun gliding to a step's hour
+
+  /** Put step "index" of a tour on screen: its world, its light, its view. */
+  function stageTour(tour, index, instant) {
+    const step = tour.steps[index];
+    const preset = PRESETS.find((p) => p.id === (step.preset || tour.preset)) || PRESETS[0];
+    const seed = step.seed ?? tour.seed ?? preset.seed;
+    const sliders = { ...preset.sliders, ...tour.sliders, ...step.sliders };
+    const rings = step.rings ?? tour.rings ?? preset.rings;
+    const nextIndex = PRESETS.indexOf(preset);
+    const newWorld = nextIndex !== presetIndex || seed !== worldSeed;
+    presetIndex = nextIndex;
+    worldSeed = seed;
+    hud.setPreset(nextIndex);
+    hud.syncSliders(sliders);
+    hud.setRings(rings);
+    hud.setSeed(seed);
+    hud.setModified(isModified({ preset, seed, sliders, rings }));
+    const apply = () => {
+      if (newWorld) {
+        state.applyPreset(preset);
+        state.setSeed(seed);
+      }
+      for (const key of SLIDER_KEYS) state.set(key, sliders[key]);
+      state.set('ringsOn', rings ? 1 : 0);
+      // The planet holds still during a tour: each step shows a chosen spot.
+      state.set('rotSpeed', 0);
+      state.cur.rotSpeed = 0;
+      if (newWorld || instant) state.snap();
+      aimTour(step, newWorld || instant);
+    };
+    if (newWorld && !instant) dipTransition(apply, 0.55);
+    else apply();
+  }
+
+  function aimTour(step, jump) {
+    const turn = world.planet.quaternion;
+    const current = state.get('sunAngle');
+    // The equivalent angle nearest the current one: the sun takes the short way round.
+    const near = (deg) => current + THREE.MathUtils.euclideanModulo(deg - current + 180, 360) - 180;
+    let sun;
+    let dir;
+    let dist;
+    if (step.look) {
+      const below = dirOfLatLon({ lat: 0, lon: step.look.lon + (step.sun || 0) }).applyQuaternion(turn);
+      sun = near(THREE.MathUtils.radToDeg(Math.atan2(below.z, below.x)));
+      dir = dirOfLatLon(step.look).applyQuaternion(turn);
+      dist = step.look.dist;
+    } else {
+      sun = near(step.sunAngle ?? current);
+      const az = THREE.MathUtils.degToRad(sun + step.orbit.az);
+      const el = THREE.MathUtils.degToRad(step.orbit.el);
+      dir = new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+      dist = step.orbit.dist;
+    }
+    hud.syncSliders({ sunAngle: THREE.MathUtils.euclideanModulo(sun, 360), rotSpeed: 0 });
+    if (jump) {
+      tourSun = null;
+      state.set('sunAngle', sun);
+      state.cur.sunAngle = sun;
+      rig.cancel();
+      rig.jumpTo(dir, dist);
+    } else {
+      tourSun = { from: state.cur.sunAngle, to: sun, t: 0 };
+      rig.flyTo(dir, dist, TOUR_FLIGHT);
+    }
+    if (step.mark) setMarker(dirOfLatLon(step.mark), true);
+    else clearMarker(true);
+  }
+
+  function updateTourSun(dt) {
+    if (!tourSun) return;
+    tourSun.t = Math.min(tourSun.t + dt / TOUR_FLIGHT, 1);
+    const k = THREE.MathUtils.smootherstep(tourSun.t, 0, 1);
+    state.set('sunAngle', tourSun.from + (tourSun.to - tourSun.from) * k);
+    if (tourSun.t >= 1) tourSun = null;
+  }
+
+  tours = createTours({
+    i18n,
+    cards,
+    host: {
+      snapshot: worldView,
+      restore(view) {
+        tourSun = null;
+        applyView(view, false);
+      },
+      stage: stageTour,
+      /** The tour is over and its world stays: the sun back in range, the spin back on. */
+      settle(saved) {
+        tourSun = null;
+        const sun = state.get('sunAngle');
+        const inRange = THREE.MathUtils.euclideanModulo(sun, 360);
+        state.cur.sunAngle += inRange - sun;
+        state.set('sunAngle', inRange);
+        const spin = saved ? saved.rotSpeed : state.get('rotSpeed');
+        state.set('rotSpeed', spin);
+        hud.syncSliders({ sunAngle: inRange, rotSpeed: spin });
+        if (marker.quiet) clearMarker(true);
+      },
+      changed: () => link.touch(),
+      sheetOff: () => hud.closeSheet(),
+    },
+  });
+
   // Compile the shaders before the first bake and the first frame, and wait
   // for them without blocking the page (see precompile below).
   await precompile(renderer, hdrTarget, camera, [
@@ -740,7 +902,8 @@ async function start() {
   // Initial world: the one in the address, else the first archetype.
   resize();
   const linked = decodeView(window.location.hash, PRESETS);
-  applyView(linked || {
+  const linkedWorld = linked && !linked.tour ? linked : null;
+  applyView(linkedWorld || {
     preset: PRESETS[0],
     seed: PRESETS[0].seed,
     sliders: { ...PRESETS[0].sliders },
@@ -748,6 +911,8 @@ async function start() {
     sunAngle: state.get('sunAngle'),
     rotSpeed: state.get('rotSpeed'),
   }, true);
+  // A link to a tour step: the default world is "the user's", the tour starts on top.
+  if (linked && linked.tour) tours.start(linked.tour.id, linked.tour.step, { instant: true });
   hud.syncSliders({ renderScale });
   baker.bakeSky();
   baker.requestWorld(0);
@@ -806,6 +971,7 @@ async function start() {
       }
     }
 
+    updateTourSun(dt);
     state.update(dt);
     rig.update(dt);
     updateFraming(dt);
@@ -906,7 +1072,7 @@ async function start() {
   };
   window.planetGenerator = {
     renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
-    probe, cards, link, marker, probeAt, setMarker, describeView,
+    probe, cards, link, marker, probeAt, setMarker, describeView, tours,
   };
 }
 
@@ -938,6 +1104,29 @@ function passScene(materials) {
   const plane = new THREE.PlaneGeometry(2, 2);
   for (const material of materials) scene.add(new THREE.Mesh(plane, material));
   return scene;
+}
+
+/**
+ * UnrealBloomPass blurs with a Gaussian of sigma = radius cut off at that same
+ * radius, i.e. at one sigma: the weights hardly fall, so each pass is nearly a
+ * box, and a box blurred across and then down is a square. On something as
+ * bright as the sun the glow came out visibly square. A Gaussian is the one
+ * separable kernel that is round, as long as it is not cut short: keep about
+ * the same spread (sigma 0.6 radius) and run the taps out to 3.5 sigma.
+ */
+function roundBloomKernels(bloom) {
+  for (const material of bloom.separableBlurMaterials || []) {
+    const radius = material.defines && material.defines.KERNEL_RADIUS;
+    const coefficients = material.uniforms && material.uniforms.gaussianCoefficients;
+    if (!radius || !coefficients) continue;
+    const sigma = 0.6 * radius;
+    const taps = Math.ceil(3.5 * sigma) + 1;
+    const weights = [];
+    for (let i = 0; i < taps; i++) weights.push(Math.exp(-0.5 * (i * i) / (sigma * sigma)));
+    material.defines.KERNEL_RADIUS = taps;
+    coefficients.value = weights;  // the shader normalises by their sum
+    material.needsUpdate = true;
+  }
 }
 
 /**

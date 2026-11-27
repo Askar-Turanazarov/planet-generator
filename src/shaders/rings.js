@@ -52,7 +52,7 @@ void main() {
   float cosV = max(abs(dot(Nr, rd)), 0.05);
   float cosL = max(abs(dot(Nr, L)), 0.05);
 
-  float tau = dens * uRingOpacity;
+  float tau = ringTau(dens);
   float alpha = 1.0 - exp(-tau / cosV);       // edge-on views are more opaque
   float hit = 1.0 - exp(-tau / cosL);         // share of sunlight intercepted
 

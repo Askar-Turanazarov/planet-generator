@@ -371,6 +371,11 @@ export function createHud({ presets, cameras, i18n, on }) {
 
   // ---- public API -------------------------------------------------------
   return {
+    /** Close the sheet of the compact layout (a tour wants the planet in view). */
+    closeSheet() {
+      if (document.body.dataset.sheet) setSheet(null);
+    },
+
     /** Move every slider to the given values (after an archetype change). */
     syncSliders(values) {
       sliders.forEach((entry, key) => {
