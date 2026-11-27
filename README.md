@@ -73,8 +73,8 @@ The caches that hold the procedural fields are sized to the device.
 
 | Tier | Chosen for | Terrain cube | Clouds | Sky | Max pixel ratio |
 |---|---|---|---|---|---|
-| `high` | Desktops and laptops | 1024² | 768² | 512² | 1.5 |
-| `medium` | Tablets and phones | 768² | 512² | 384² | 1.5 |
+| `high` | Desktops and laptops; iPhone and iPad on iOS 26 or later; Android devices reporting 8 GB of memory | 1024² | 768² | 512² | 1.5 |
+| `medium` | Other tablets and phones | 768² | 512² | 384² | 1.5 |
 | `low` | Phones reporting 4 GB of memory or less; any mobile device reporting 2 GB or less | 512² | 384² | 256² | 1.25 |
 
 Add `?quality=high`, `?quality=medium` or `?quality=low` to the address to override the choice.
@@ -82,7 +82,9 @@ The active tier is shown in the telemetry (**System** tab on mobile). On top of 
 governor lowers the render resolution when the GPU cannot keep up, so a slow device loses pixels
 rather than frames.
 
-Browsers that do not report memory (Safari, Firefox) always get `medium` on mobile.
+iPhone and iPad report neither their memory nor their model. iOS 26 and later (iPhone 11 / iPad 8th
+generation and newer) is recognised by its WebGPU support and the Safari version and gets `high`;
+older iOS gets `medium`. Firefox on Android does not report memory either and gets `medium`.
 
 ### Run locally
 
@@ -96,7 +98,8 @@ Then open `http://localhost:5173`. The server also prints the computer's address
 network: open that address on a phone or tablet connected to the same Wi-Fi to try the mobile layout
 on a real device. (The system firewall may ask once whether to allow Node.js.)
 
-The same commands through npm: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`.
+The same commands through npm: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`,
+`npm run vendor`.
 
 ### Build
 
@@ -109,8 +112,9 @@ and writes the `dist/` folder:
 
 | File | Purpose |
 |---|---|
-| `dist/index.html` | The site's entry page |
-| `dist/planet-generator.html` | The same page as a single file: it also runs when opened straight from the disk |
+| `dist/index.html` | The site's entry page; loads Three.js from `vendor/` as separate files the browser keeps cached between releases |
+| `dist/planet-generator.html` | The same page with Three.js inside it too: one file that runs opened straight from the disk, with no network at all |
+| `dist/vendor/` | Three.js for `index.html` |
 | `dist/manifest.webmanifest`, `dist/icons/` | What "Add to Home Screen" needs |
 
 `node tools/serve.mjs 4173 dist` serves the built site exactly as a host would.
@@ -139,6 +143,7 @@ then starts full-screen, without the browser's bars.
 index.html                 HUD markup, import map, entry point
 manifest.webmanifest       web app manifest
 icons/                     app icons (drawn by tools/make-icons.mjs)
+vendor/three-0.170.0/      Three.js r170: the minified core and the add-ons in use (MIT)
 css/hud.css                the graphite telemetry overlay and its three layouts
 src/main.js                renderer, composer, frame loop, framing, LOD, resolution governor
 src/quality.js             quality tiers and device detection
@@ -154,8 +159,9 @@ src/shaders/               GLSL: shared chunks, bake passes, planet, clouds, atm
 tools/serve.mjs            static dev server
 tools/build-single.mjs     single-file build
 tools/make-icons.mjs       icon generator
+tools/vendor-three.mjs     copies Three.js from the npm registry into vendor/
 vercel.json                Vercel configuration
-PLAN.md, DEPLOY-PLAN.md    design notes and the record of what was verified (in Russian)
+docs/                      plans, ideas and the record of what was verified (in Russian)
 ```
 
 ### How it works
@@ -167,11 +173,17 @@ no pinching at the poles. Sliders are live uniforms and never trigger a re-bake,
 dragging them stays smooth. Changing the seed or the archetype re-synthesises the world in a few
 frames behind a short exposure fade.
 
+The shaders are compiled before the first frame without blocking the page: where the browser
+supports parallel compilation (`KHR_parallel_shader_compile`), the drivers work in the background
+while the loading screen stays responsive.
+
 ### Requirements and limitations
 
 - A browser with WebGL 2 and rendering to half-float textures: current Chrome, Edge, Firefox, Safari
   (iOS 15 and later).
-- Three.js is loaded from the jsDelivr CDN, so the page needs an internet connection on first load.
+- Three.js r170 is part of the repository (`vendor/`, MIT licence): the site depends on no CDN, and
+  `planet-generator.html` runs without a network. `node tools/vendor-three.mjs <version>` replaces it
+  with another version from the npm registry.
 - The layouts were verified in a desktop browser emulating phone and tablet sizes. Frame rate on real
   phones and tablets was not measured: the quality tiers and the resolution governor are sized with
   a margin, but only a run on the device shows the real figure.
@@ -260,8 +272,8 @@ Protsedurali maydonlar saqlanadigan keshlar hajmi qurilmaga qarab tanlanadi.
 
 | Daraja | Kimlar uchun | Relyef kubi | Bulutlar | Osmon | Eng katta piksel nisbati |
 |---|---|---|---|---|---|
-| `high` | Kompyuter va noutbuklar | 1024² | 768² | 512² | 1,5 |
-| `medium` | Planshet va telefonlar | 768² | 512² | 384² | 1,5 |
+| `high` | Kompyuter va noutbuklar; iOS 26 va undan yangi tizimdagi iPhone va iPad; xotirasi 8 GB deb xabar bergan Android qurilmalar | 1024² | 768² | 512² | 1,5 |
+| `medium` | Boshqa planshet va telefonlar | 768² | 512² | 384² | 1,5 |
 | `low` | Xotirasi 4 GB va undan kam deb xabar bergan telefonlar; 2 GB va undan kam har qanday mobil qurilma | 512² | 384² | 256² | 1,25 |
 
 Tanlovni oʻzgartirish uchun manzil oxiriga `?quality=high`, `?quality=medium` yoki `?quality=low`
@@ -269,8 +281,10 @@ qoʻshing. Amaldagi daraja telemetriyada koʻrsatiladi (mobil qurilmada — **Ti
 tashqari, grafik protsessor ulgurmay qolsa, aniqlik boshqaruvchisi render aniqligini pasaytiradi:
 sust qurilma kadrlarni emas, piksellarni yoʻqotadi.
 
-Xotira hajmini xabar qilmaydigan brauzerlar (Safari, Firefox) mobil qurilmada har doim `medium`
-darajasini oladi.
+iPhone va iPad xotira hajmini ham, modelini ham xabar qilmaydi. iOS 26 va undan yangisi (iPhone 11 /
+iPad 8-avlod va undan yangilari) WebGPU qoʻllanishi va Safari versiyasidan aniqlanadi va `high`
+darajasini oladi; eskiroq iOS — `medium`. Android dagi Firefox ham xotirani xabar qilmaydi va
+`medium` oladi.
 
 ### Kompyuterda ishga tushirish
 
@@ -285,7 +299,8 @@ ham chiqaradi: mobil joylashuvni haqiqiy qurilmada sinash uchun shu manzilni oʻ
 telefon yoki planshetda oching. (Tizim xavfsizlik devori Node.js ga ruxsat berishni bir marta
 soʻrashi mumkin.)
 
-Xuddi shu buyruqlar npm orqali: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`.
+Xuddi shu buyruqlar npm orqali: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`,
+`npm run vendor`.
 
 ### Yigʻish
 
@@ -298,8 +313,9 @@ sahifaga jamlab, `dist/` papkasini yozadi:
 
 | Fayl | Vazifasi |
 |---|---|
-| `dist/index.html` | Saytning kirish sahifasi |
-| `dist/planet-generator.html` | Oʻsha sahifaning oʻzi, bitta fayl koʻrinishida: diskdan toʻgʻridan-toʻgʻri ochilganda ham ishlaydi |
+| `dist/index.html` | Saytning kirish sahifasi; Three.js ni `vendor/` dan alohida fayllar sifatida yuklaydi, brauzer ularni relizlar orasida keshda saqlaydi |
+| `dist/planet-generator.html` | Oʻsha sahifa, Three.js ham ichida: diskdan toʻgʻridan-toʻgʻri, tarmoqsiz ochiladigan bitta fayl |
+| `dist/vendor/` | `index.html` uchun Three.js |
 | `dist/manifest.webmanifest`, `dist/icons/` | «Bosh ekranga qoʻshish» uchun kerakli fayllar |
 
 `node tools/serve.mjs 4173 dist` buyrugʻi yigʻilgan saytni xosting qanday tarqatsa, shunday tarqatadi.
@@ -330,6 +346,7 @@ shundan soʻng ilova brauzer panellarisiz, toʻliq ekranda ochiladi.
 index.html                 HUD belgilashi, import map, kirish nuqtasi
 manifest.webmanifest       veb-ilova manifesti
 icons/                     ilova belgilari (tools/make-icons.mjs chizadi)
+vendor/three-0.170.0/      Three.js r170: siqilgan yadro va ishlatiladigan qoʻshimchalar (MIT)
 css/hud.css                grafit rangli telemetriya qatlami va uning uch joylashuvi
 src/main.js                renderer, kompozer, kadr sikli, kadrlash, LOD, aniqlik boshqaruvchisi
 src/quality.js             sifat darajalari va qurilmani aniqlash
@@ -345,8 +362,9 @@ src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, bulutl
 tools/serve.mjs            statik ishlab chiqish serveri
 tools/build-single.mjs     bitta faylga yigʻish
 tools/make-icons.mjs       belgilar generatori
+tools/vendor-three.mjs     Three.js ni npm reyestridan vendor/ ga koʻchiradi
 vercel.json                Vercel sozlamalari
-PLAN.md, DEPLOY-PLAN.md    loyiha yechimlari va nimalar tekshirilgani haqidagi qaydlar (rus tilida)
+docs/                      rejalar, gʻoyalar va nimalar tekshirilgani haqidagi qaydlar (rus tilida)
 ```
 
 ### Qanday ishlaydi
@@ -358,11 +376,17 @@ oʻqiladi, shuning uchun choklar ham, qutblardagi siqilish ham yoʻq. Slayderlar
 ular keshni qayta hisoblatmaydi, shu sababli surilganda tasvir ravon qoladi. Kalit yoki sayyora turi
 oʻzgarganda olam bir necha kadr ichida, ekran qisqa muddatga xiralashgan paytda qayta yaratiladi.
 
+Sheyderlar birinchi kadrdan oldin, sahifani toʻxtatmasdan kompilyatsiya qilinadi: brauzer parallel
+kompilyatsiyani (`KHR_parallel_shader_compile`) qoʻllasa, drayverlar fonda ishlaydi, yuklanish
+ekrani esa javob berishda davom etadi.
+
 ### Talablar va cheklovlar
 
 - WebGL 2 va half-float teksturalarga renderlashni qoʻllaydigan brauzer: Chrome, Edge, Firefox,
   Safari ning hozirgi versiyalari (iOS 15 va undan yangi).
-- Three.js jsDelivr CDN dan yuklanadi, shuning uchun birinchi ochilishda internet kerak.
+- Three.js r170 repozitoriyning bir qismi (`vendor/`, MIT litsenziyasi): sayt hech qanday CDN ga
+  bogʻliq emas, `planet-generator.html` esa tarmoqsiz ishlaydi. `node tools/vendor-three.mjs <versiya>`
+  uni npm reyestridagi boshqa versiyaga almashtiradi.
 - Joylashuvlar kompyuter brauzerida, telefon va planshet oʻlchamlarini taqlid qilib tekshirilgan.
   Haqiqiy telefon va planshetlarda kadrlar chastotasi oʻlchanmagan: sifat darajalari va aniqlik
   boshqaruvchisi zaxira bilan tanlangan, ammo haqiqiy natijani faqat qurilmaning oʻzida ishga
@@ -450,8 +474,8 @@ barcha huquqlar muallifda qoladi.
 
 | Профиль | Для кого | Куб рельефа | Облака | Небо | Макс. плотность пикселей |
 |---|---|---|---|---|---|
-| `high` | Компьютеры и ноутбуки | 1024² | 768² | 512² | 1,5 |
-| `medium` | Планшеты и телефоны | 768² | 512² | 384² | 1,5 |
+| `high` | Компьютеры и ноутбуки; iPhone и iPad на iOS 26 и новее; Android-устройства, сообщающие о 8 ГБ памяти | 1024² | 768² | 512² | 1,5 |
+| `medium` | Остальные планшеты и телефоны | 768² | 512² | 384² | 1,5 |
 | `low` | Телефоны, сообщающие о 4 ГБ памяти и меньше; любые мобильные устройства с 2 ГБ и меньше | 512² | 384² | 256² | 1,25 |
 
 Чтобы выбрать профиль вручную, добавьте к адресу `?quality=high`, `?quality=medium` или
@@ -459,7 +483,9 @@ barcha huquqlar muallifda qoladi.
 Сверх этого работает регулятор разрешения: если видеокарта не успевает, он снижает разрешение
 рендера, так что слабое устройство теряет пиксели, а не кадры.
 
-Браузеры, которые не сообщают объём памяти (Safari, Firefox), на мобильных всегда получают `medium`.
+iPhone и iPad не сообщают ни объём памяти, ни модель. iOS 26 и новее (iPhone 11 / iPad 8-го поколения
+и новее) распознаётся по поддержке WebGPU и версии Safari и получает `high`; более старая iOS —
+`medium`. Firefox на Android тоже не сообщает память и получает `medium`.
 
 ### Запуск на компьютере
 
@@ -473,7 +499,8 @@ node tools/serve.mjs
 его на телефоне или планшете, подключённом к тому же Wi-Fi, чтобы попробовать мобильную раскладку на
 настоящем устройстве. (Системный брандмауэр может один раз спросить разрешение для Node.js.)
 
-Те же команды через npm: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`.
+Те же команды через npm: `npm run dev`, `npm run build`, `npm run preview`, `npm run icons`,
+`npm run vendor`.
 
 ### Сборка
 
@@ -486,8 +513,9 @@ node tools/build-single.mjs
 
 | Файл | Назначение |
 |---|---|
-| `dist/index.html` | Входная страница сайта |
-| `dist/planet-generator.html` | Та же страница одним файлом: работает и при открытии прямо с диска |
+| `dist/index.html` | Входная страница сайта; загружает Three.js из `vendor/` отдельными файлами, которые браузер хранит в кэше между релизами |
+| `dist/planet-generator.html` | Та же страница, и Three.js тоже внутри: один файл, который открывается прямо с диска, без сети |
+| `dist/vendor/` | Three.js для `index.html` |
 | `dist/manifest.webmanifest`, `dist/icons/` | Всё, что нужно для «Добавить на экран „Домой“» |
 
 Команда `node tools/serve.mjs 4173 dist` раздаёт собранный сайт так же, как это сделает хостинг.
@@ -516,6 +544,7 @@ node tools/build-single.mjs
 index.html                 разметка HUD, import map, точка входа
 manifest.webmanifest       манифест веб-приложения
 icons/                     иконки приложения (рисует tools/make-icons.mjs)
+vendor/three-0.170.0/      Three.js r170: минифицированное ядро и используемые аддоны (MIT)
 css/hud.css                графитовый телеметрический оверлей и три его раскладки
 src/main.js                рендерер, композер, цикл кадра, кадрирование, LOD, регулятор разрешения
 src/quality.js             профили качества и определение устройства
@@ -531,8 +560,9 @@ src/shaders/               GLSL: общие блоки, запекание, пл
 tools/serve.mjs            статический сервер для разработки
 tools/build-single.mjs     сборка в один файл
 tools/make-icons.mjs       генератор иконок
+tools/vendor-three.mjs     копирует Three.js из реестра npm в vendor/
 vercel.json                настройки Vercel
-PLAN.md, DEPLOY-PLAN.md    проектные решения и перечень того, что проверено
+docs/                      планы, идеи и перечень того, что проверено
 ```
 
 ### Как это работает
@@ -544,11 +574,17 @@ PLAN.md, DEPLOY-PLAN.md    проектные решения и перечень
 остаётся плавной. При смене ключа или архетипа мир пересинтезируется за несколько кадров под
 коротким затемнением.
 
+Шейдеры компилируются до первого кадра, не блокируя страницу: если браузер поддерживает
+параллельную компиляцию (`KHR_parallel_shader_compile`), драйверы работают в фоне, а экран загрузки
+остаётся отзывчивым.
+
 ### Требования и ограничения
 
 - Браузер с WebGL 2 и рендером в half-float-текстуры: актуальные Chrome, Edge, Firefox, Safari
   (iOS 15 и новее).
-- Three.js загружается с CDN jsDelivr, поэтому при первом открытии нужен интернет.
+- Three.js r170 лежит в репозитории (`vendor/`, лицензия MIT): сайт не зависит ни от какого CDN, а
+  `planet-generator.html` работает без сети. `node tools/vendor-three.mjs <версия>` заменяет его
+  другой версией из реестра npm.
 - Раскладки проверены в десктопном браузере с эмуляцией размеров телефона и планшета. Частота кадров
   на настоящих телефонах и планшетах не измерялась: профили качества и регулятор разрешения выбраны
   с запасом, но реальную цифру покажет только запуск на устройстве.
