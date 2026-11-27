@@ -609,3 +609,65 @@ float coverHabitable(float lat, float bioH, float landH, float moist, float ice,
   return lowland * coastal * temperate * (1.0 - ice) * (1.0 - snow);
 }
 `;
+
+// ---------------------------------------------------------------------------
+// Relief finer than the terrain cache (FLIGHT-PLAN.md, stage D). Octaves of
+// simplex noise from a ~25 km wavelength (Terran) down to metres. The terrain
+// vertex shader puts the ones its grid can carry into the geometry; the
+// fragment shader adds the finer ones to the normal.
+//
+// Precision: a float has 0.76 m of resolution at the planet's radius, and a
+// noise lattice at millions of cycles per radius needs more. The point is
+// therefore split as hi + lo + rel: hi is the patch centre rounded to 1/4096
+// (so hi * F is exact for these power-of-two frequencies), lo the rest of the
+// centre, rel the offset from the centre (small, so exact). The simplex noise
+// repeats every 867 units along each axis (289 lattice cells, skewed), which
+// lets hi * F be wrapped before the small parts are added.
+//
+// Heights are in elevation units, gradients in elevation units per planet
+// radius (object space); uRealScale turns elevation units into radii.
+// ---------------------------------------------------------------------------
+export const DETAIL = { octaves: 15, f0: 256 };
+
+export const GLSL_RELIEF_DETAIL = /* glsl */ `
+#define DETAIL_OCTAVES ${DETAIL.octaves}
+#define DETAIL_F0 ${DETAIL.f0.toFixed(1)}
+#define NOISE_PERIOD 867.0
+
+uniform float uRealScale;    // planet radii per elevation unit (kmPerUnit / radiusKm)
+
+// Slope one octave contributes, from the cache's mountain term: plains stay
+// gentle, mountains break into crags (real slopes, not exaggerated).
+float detailSlope(vec4 shape, float relief) {
+  float mount = sat01(0.3 + 1.5 * shape.y) * min(relief, 1.5);
+  return 0.018 + 0.085 * mount;
+}
+
+// Sum of the octaves whose wavelength is resolved by "fine" (spacing of the
+// samples: grid or pixel) and not already carried at "coarse". Returns
+// (gradient xyz, height).
+vec4 reliefDetail(vec3 hi, vec3 lo, vec3 rel, float fine, float coarse, float slope, float ridged) {
+  vec4 acc = vec4(0.0);
+  float freq = DETAIL_F0;
+  float amp = slope / (2.5 * uRealScale);
+  for (int i = 0; i < DETAIL_OCTAVES; i++) {
+    float lambda = 1.0 / freq;
+    if (lambda < 1.5 * fine) {
+      break;
+    }
+    float w = smoothstep(1.5, 3.0, lambda / fine) * (1.0 - smoothstep(2.0, 4.0, lambda / coarse));
+    if (w > 0.001) {
+      vec3 q = mod(hi * freq, NOISE_PERIOD) + lo * freq + rel * freq + uSeed.zxy * 2.7 + vec3(float(i) * 17.1, float(i) * -9.3, float(i) * 5.7);
+      vec4 n = snoiseD(q);
+      // Ridged on mountains: crests instead of rounded hills.
+      float s = n.w < 0.0 ? -1.0 : 1.0;
+      float v = mix(n.w, 0.55 - 1.5 * abs(n.w), ridged);
+      vec3 g = mix(n.xyz, -1.5 * s * n.xyz, ridged);
+      acc.w += w * amp * lambda * v;
+      acc.xyz += w * amp * g;
+    }
+    freq *= 2.0;
+  }
+  return acc;
+}
+`;

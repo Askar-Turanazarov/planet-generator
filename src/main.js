@@ -16,10 +16,13 @@ import { createCapture } from './capture.js';
 import { createProbe, MAX_POINTS } from './probe.js';
 import { describePoint } from './survey.js';
 import { createWorld } from './world.js';
+import { createHeightmap } from './heightmap.js';
+import { createGroundProbe } from './groundProbe.js';
+import { TERRAIN_GRID } from './shaders/terrain.js';
 import { CameraRig } from './camera.js';
 import { FlightCamera } from './flightCamera.js';
 import { ScenePass } from './scenePass.js';
-import { ATMOSPHERE } from './shaders/chunks.js';
+import { ATMOSPHERE, DETAIL } from './shaders/chunks.js';
 import { createHud } from './hud.js';
 import { createI18n } from './i18n.js';
 import { createBaker } from './bake.js';
@@ -93,7 +96,11 @@ async function start() {
   const uniforms = createUniforms();
   const state = new PlanetState(uniforms);
   const baker = createBaker(renderer, uniforms, quality);
-  const world = createWorld(uniforms);
+  // Coarse copy of the relief on the CPU, read back after every bake (heightmap.js).
+  const heightmap = createHeightmap(renderer, uniforms);
+  const world = createWorld(uniforms, heightmap);
+  // The ground the terrain actually draws, under the flying camera (null without float targets).
+  const ground = createGroundProbe(renderer);
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 200);
   camera.layers.enableAll();
@@ -1132,7 +1139,6 @@ async function start() {
   // Finite-difference step: a little over one texel of the terrain cache.
   const TERRAIN_STEP = (0.0024 * 1024) / quality.terrain;
   // Wavelengths of the micro-relief octaves (must match the surface shader).
-  const DETAIL_WAVELENGTHS = [0, 1, 2].map((i) => 1 / (200 * Math.pow(2.03, i)));
   let last = performance.now();
   let time = 0;
   let frames = 0;
@@ -1151,14 +1157,38 @@ async function start() {
     const height = Math.max(dist - (flight.active ? flight.groundRadius : 1), 1e-7);
     const pixel = (2 * tanHalfFov * height) / renderer.domElement.height;
     uniforms.uEps.value = Math.max(TERRAIN_STEP, pixel * 1.2);
-    let detailOctaves = 0;
-    DETAIL_WAVELENGTHS.forEach((wavelength, i) => {
-      const weight = THREE.MathUtils.smoothstep(wavelength / pixel, 2.5, 5.0);
-      uniforms.uDetail.value.setComponent(i, weight);
-      detailOctaves += weight;
-    });
+    uniforms.uPixelAngle.value = (2 * tanHalfFov) / renderer.domElement.height;
+    // Relief shading: exaggerated from orbit, real below about 20 km.
+    uniforms.uExag.value = THREE.MathUtils.smoothstep(Math.log(height), Math.log(0.003), Math.log(0.25));
+    const survey = PRESETS[presetIndex].survey;
+    uniforms.uRealScale.value = survey.kmPerUnit / survey.radiusKm;
+    world.terrain.update(camera, world.planet, survey.radiusKm, flight.active ? flight.groundRadius : 1);
+    // Octaves of fine relief wider than a pixel and a half (GLSL_RELIEF_DETAIL).
+    const detailOctaves = THREE.MathUtils.clamp(Math.log2(1 / (DETAIL.f0 * 1.5 * pixel)) + 1, 0, DETAIL.octaves);
     uniforms.uCloudDetail.value = 1 - THREE.MathUtils.smoothstep(pixel, 0.0006, 0.0016);
     return detailOctaves;
+  }
+
+  /**
+   * Radius of the ground under the flying camera: the GPU probe's answer (the
+   * drawn ground, a frame or two old), or the coarse height map until there is one.
+   */
+  const groundDir = new THREE.Vector3();
+  const groundSample = [{ dir: groundDir, fine: 0 }];
+  function updateGround() {
+    groundDir.copy(camera.position);
+    world.planet.worldToLocal(groundDir).normalize();
+    const settled = !baker.busy && heightmap.ready;
+    let h = settled && ground?.values ? ground.values[0] : null;
+    if (h === null) h = heightmap.elevationAt(groundDir);
+    if (h === null) return;
+    const sea = uniforms.uSeaLevel.value;
+    flight.groundRadius = 1 + (Math.max(h, sea) - uniforms.uBiomeDatum.value) * uniforms.uRealScale.value;
+    if (settled && ground) {
+      // The grid spacing the terrain has right under the camera (terrain.js).
+      groundSample[0].fine = Math.max(flight.clearance, 1e-7) / (TERRAIN_GRID * world.terrain.settings.lodK) * 1.3333;
+      ground.request(uniforms, groundSample);
+    }
   }
 
   /**
@@ -1264,11 +1294,17 @@ async function start() {
       cachesLost = false;
       baker.bakeSky();
       baker.requestWorld(time);
+      heightmap.invalidate();
+      ground?.invalidate();
+      ground?.invalidate();
       baker.step();
     } else if (worldDirty) {
       worldDirty = false;
       baker.requestWorld(time);
+      heightmap.invalidate();
     }
+    if (!heightmap.ready && !baker.busy) heightmap.read();
+    if (flight.active) updateGround();
     if (!dip) gpuBegin();
     baker.updateClouds(time);
     hud.setStatus(baker.busy ? 'status.busy' : 'status.live');
@@ -1346,7 +1382,7 @@ async function start() {
   };
   window.planetGenerator = {
     renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
-    probe, cards, link, marker, probeAt, flight, scenePass, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
+    probe, cards, link, marker, probeAt, flight, scenePass, heightmap, ground, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
   };
 }
 

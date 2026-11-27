@@ -4,21 +4,7 @@
 // synthesised from 3D noise, see bake.js). Everything a slider touches (sea
 // level, relief, ice, lights, palette) is assembled here from uniforms, so the
 // controls never trigger a rebuild of anything.
-import { GLSL_COMMON, GLSL_NOISE, GLSL_CLOUDS, GLSL_RINGS, GLSL_SURFACE } from './chunks.js';
-
-export const PLANET_VERT = /* glsl */ `
-precision highp float;
-
-varying vec3 vObjPos;
-varying vec3 vWorldPos;
-
-void main() {
-  vObjPos = position;
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorldPos = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
+import { GLSL_COMMON, GLSL_NOISE, GLSL_CLOUDS, GLSL_RINGS, GLSL_SURFACE, GLSL_RELIEF_DETAIL } from './chunks.js';
 
 export const PLANET_FRAG = /* glsl */ `
 ${GLSL_COMMON}
@@ -26,6 +12,7 @@ ${GLSL_NOISE}
 ${GLSL_CLOUDS}
 ${GLSL_RINGS}
 ${GLSL_SURFACE}
+${GLSL_RELIEF_DETAIL}
 
 uniform mat4 modelMatrix;
 
@@ -40,7 +27,9 @@ uniform float uRelief;
 uniform float uRidge;
 uniform float uEps;          // finite-difference step on the unit sphere
 uniform float uBump;
-uniform vec3 uDetail;        // weights of the three micro-relief octaves (LOD)
+uniform float uExag;         // 1 from orbit: relief shading exaggerated as uBump says; 0 near the ground: real
+uniform float uPixelAngle;   // size of a pixel per unit of distance
+uniform float uLodK;         // terrain patches split closer than uLodK edges (terrain.js)
 uniform float uVeinMix;
 uniform float uVeinEmissive;
 
@@ -66,7 +55,11 @@ uniform vec3 uColVein;
 uniform vec3 uColCity;
 
 varying vec3 vObjPos;
-varying vec3 vWorldPos;
+varying vec3 vToCam;
+varying vec4 vDetail;
+varying vec3 vRel;
+flat varying vec3 vHi;
+flat varying vec3 vLo;
 
 // Elevation of the unit-sphere point p. Sea level is a threshold on this
 // value; the relief slider scales the mountain term live.
@@ -85,7 +78,11 @@ void main() {
   mat3 o2w = mat3(modelMatrix);
   vec3 N = normalize(o2w * p);
   vec3 L = uSunDir;
-  vec3 V = normalize(cameraPosition - vWorldPos);
+  float viewDist = length(vToCam);
+  vec3 V = vToCam / viewDist;
+  // Macro relief: exaggerated from orbit (it would not show at its real
+  // scale), real near the ground, where the geometry carries it.
+  float bumpMacro = mix(uRealScale, uBump, uExag);
   float mu = dot(N, L);
   float ndv = max(dot(N, V), 0.0);
   float lat = abs(p.y);
@@ -109,34 +106,24 @@ void main() {
   float hB = getElevation(normalize(p + uEps * B));
   vec2 grad = vec2(hT - h0, hB - h0) / uEps;
 
-  // ---- micro-relief: octaves too fine for the cache ----
-  // Added only when the camera is close enough to resolve them. Simplex noise
-  // has an exact gradient, so the high-frequency bump needs no extra taps.
-  // It only shapes sunlit ground, so it fades out past the terminator and the
-  // night side skips the noise altogether.
-  float micro = 0.0;
+  // ---- relief finer than the cache ----
+  // The terrain grid carries the octaves it can (vDetail); the ones between
+  // its spacing and the pixel are added here. Simplex noise has an exact
+  // gradient, so the fine relief needs no extra taps. It only shapes sunlit
+  // ground, so the night side skips the noise altogether.
+  vec4 det = vDetail;
   float sunlit = smoothstep(-0.16, -0.06, mu);
-  if (uDetail.x > 0.0 && sunlit > 0.0 && h0 - uSeaLevel > -0.012) {
-    float rugged = 0.4 + sat01(0.3 + 1.5 * shape.y) * min(uRelief * uRidge, 1.5);
-    vec3 dq = p * 200.0 + uSeed.zxy * 2.7;
-    float amp = 0.0032 * rugged * sunlit;
-    float freq = 200.0;
-    vec3 dg = vec3(0.0);
-    for (int i = 0; i < 3; i++) {
-      float w = uDetail[i];
-      if (w <= 0.0) {
-        break;
-      }
-      vec4 nd = snoiseD(dq);
-      micro += amp * w * nd.w;
-      dg += (amp * w * freq) * nd.xyz;
-      dq = dq * 2.03 + vec3(17.1, -9.3, 5.7);
-      freq *= 2.03;
-      amp *= 0.5;
-    }
-    h0 += micro;
-    grad += vec2(dot(dg, T), dot(dg, B));
+  if (sunlit > 0.0 && h0 - uSeaLevel > -0.012) {
+    // Octaves start fading in at 2.5 pixels (1.5 of this "pixel"): finer ones
+    // would only shimmer, and each costs a noise evaluation.
+    float pixel = 1.67 * viewDist * uPixelAngle / sqrt(max(ndv, 0.08));
+    float ridged = sat01(0.3 + 1.5 * shape.y) * sat01(uRelief * uRidge);
+    det += sunlit * reliefDetail(vHi, vLo, vRel, pixel, viewDist / (32.0 * uLodK),
+        detailSlope(shape, uRelief * uRidge), ridged);
   }
+  float micro = det.w;
+  h0 += micro;
+  vec2 gradDet = vec2(dot(det.xyz, T), dot(det.xyz, B));
 
   float grain = cover.w * 2.0 - 1.0; // fine land-cover mottling
   float landH = h0 - uSeaLevel;      // height above the liquid surface
@@ -165,7 +152,7 @@ void main() {
     // ===================== LAND =====================
     // The gradient tilts the normal so ridges, craters and coasts catch the sun.
     float slope = length(grad);
-    nObj = normalize(p - uBump * (grad.x * T + grad.y * B));
+    nObj = normalize(p - bumpMacro * (grad.x * T + grad.y * B) - uRealScale * (gradDet.x * T + gradDet.y * B));
 
     float moist = coverMoisture(lat, aux.z, grain);
 
@@ -175,7 +162,7 @@ void main() {
     albedo = mix(uColSand, low, coverInland(bioH, aux.w, grain));
 
     // Stratified rock on high ground and on steep faces.
-    float steep = coverSteep(slope);
+    float steep = max(coverSteep(slope), smoothstep(0.35, 0.8, length(gradDet) * uRealScale));
     float rocky = coverRock(bioH, grain, steep);
     // Strata follow elevation, bent by the ridge field so they read as
     // folded beds rather than as contour lines.
@@ -190,7 +177,7 @@ void main() {
 
     // Valleys sit darker than crests, down to the finest visible grain.
     albedo *= (0.80 + 0.38 * aux.y) * (1.0 + 0.16 * grain);
-    albedo *= 1.0 + clamp(micro * 34.0, -0.22, 0.22);
+    albedo *= 1.0 + clamp(micro * 2.0, -0.15, 0.15);
 
     // Veins: tint, and glow if the archetype says they are molten.
     float veinV = clamp(aux.x, 0.0, 1.0);
@@ -278,8 +265,8 @@ void main() {
     float rise = mu / sqrt(max(1.0 - mu * mu, 1e-4));
     float d1 = uEps * 2.5;
     float d2 = uEps * 7.0;
-    float o1 = uBump * (elevationLod(normalize(p + d1 * Lg), reliefLod) - h0) / d1 - rise;
-    float o2 = uBump * (elevationLod(normalize(p + d2 * Lg), reliefLod + 1.0) - h0) / d2 - rise;
+    float o1 = bumpMacro * (elevationLod(normalize(p + d1 * Lg), reliefLod) - h0) / d1 - rise;
+    float o2 = bumpMacro * (elevationLod(normalize(p + d2 * Lg), reliefLod + 1.0) - h0) / d2 - rise;
     shadow *= 1.0 - 0.85 * smoothstep(0.0, 0.10, max(o1, o2));
   }
 
@@ -298,6 +285,6 @@ void main() {
   col *= viewExtinction(ndv);
 
   // Alpha is the analytic coverage of the silhouette (limb anti-aliasing).
-  gl_FragColor = vec4(col, limbCoverage(cameraPosition, -V, R_PLANET));
+  gl_FragColor = vec4(col, mix(1.0, limbCoverage(cameraPosition, -V, R_PLANET), uExag));
 }
 `;

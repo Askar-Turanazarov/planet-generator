@@ -34,7 +34,13 @@ export function createUniforms() {
     uWarp: num(0.5),
     uOct: num(7),                 // octaves synthesised into the terrain cache
     uEps: num(0.0024),
-    uDetail: vec3(),              // micro-relief octave weights (distance LOD)
+    // --- terrain quadtree and the relief finer than the cache (terrain.js) ---
+    uRealScale: num(18 / 6371),   // planet radii per elevation unit
+    uExag: num(1),                // relief shading: 1 exaggerated (orbit), 0 real (near the ground)
+    uPixelAngle: num(0.001),      // pixel size per unit of distance
+    uLodK: num(2.5),
+    uLodRadius: num(1),
+    uLocalToView: { value: new THREE.Matrix3() },
     uTerrainA: tex(),
     uTerrainB: tex(),
     uBump: num(0.06),

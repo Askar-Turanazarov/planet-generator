@@ -6,14 +6,14 @@
 //   sky -> planet -> clouds -> far half of the rings
 //       -> atmosphere (additive) -> near half of the rings
 import * as THREE from 'three';
-import { PLANET_VERT, PLANET_FRAG } from './shaders/planet.js';
+import { createTerrain } from './terrain.js';
 import { CLOUDS_VERT, CLOUDS_FRAG } from './shaders/clouds.js';
 import { ATMO_VERT, ATMO_FRAG } from './shaders/atmosphere.js';
 import { RINGS_VERT, RINGS_FRAG } from './shaders/rings.js';
 import { SKY_VERT, SKY_FRAG } from './shaders/sky.js';
 import { LAYER } from './scenePass.js';
 
-export function createWorld(uniforms) {
+export function createWorld(uniforms, heightmap) {
   const scene = new THREE.Scene();
 
   // --- deep space backdrop ---
@@ -34,20 +34,11 @@ export function createWorld(uniforms) {
   sky.layers.set(LAYER.FAR);
   scene.add(sky);
 
-  // --- planetary surface ---
-  const planet = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 192, 192),
-    new THREE.ShaderMaterial({
-      name: 'Planet',
-      uniforms,
-      vertexShader: PLANET_VERT,
-      fragmentShader: PLANET_FRAG,
-      // Opaque in practice: alpha is only the analytic coverage of the limb.
-      transparent: true,
-      depthWrite: true,
-    }),
-  );
-  planet.layers.set(LAYER.NEAR);
+  // --- planetary surface: the terrain quadtree (terrain.js) ---
+  // The group carries the planet's turn about its axis; the patches hang from it.
+  const terrain = createTerrain(uniforms, heightmap);
+  const planet = new THREE.Group();
+  planet.add(terrain.mesh);
   scene.add(planet);
 
   // --- cloud shell ---
@@ -117,5 +108,5 @@ export function createWorld(uniforms) {
   rings.add(ringFar, ringNear);
   scene.add(rings);
 
-  return { scene, sky, planet, clouds, atmosphere, rings };
+  return { scene, sky, planet, terrain, clouds, atmosphere, rings };
 }
