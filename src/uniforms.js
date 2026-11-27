@@ -91,7 +91,15 @@ export function createUniforms() {
     uCloudB: tex(),
     uCloudBlend: num(0),
     uCloudDetail: num(0),
-    uCloudRadius: num(1.012),
+    // The layer is a few kilometres up (set per planet in main.js): the shell
+    // sits in its middle, the volume fills it.
+    uCloudRadius: num(1 + 4 / 6371),
+    uCloudBase: num(1 + 2 / 6371),
+    uCloudTop: num(1 + 6 / 6371),
+    uCloudVol: num(0),            // 0: shell only, 1: volume only
+    uCloudSteps: num(24),
+    uCloudSigma: num(0.01 * 6371000),
+    uCloudNoise: num(6371 / 1.3),
     uStormA: vec4(),
     uStormB: vec4(),
     uStormC: vec4(),

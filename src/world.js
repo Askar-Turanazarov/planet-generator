@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { createTerrain } from './terrain.js';
 import { CLOUDS_VERT, CLOUDS_FRAG } from './shaders/clouds.js';
+import { CLOUD_VOLUME_VERT, CLOUD_VOLUME_FRAG } from './shaders/cloudVolume.js';
 import { ATMO_VERT, ATMO_FRAG } from './shaders/atmosphere.js';
 import { RINGS_VERT, RINGS_FRAG } from './shaders/rings.js';
 import { SKY_VERT, SKY_FRAG } from './shaders/sky.js';
@@ -41,9 +42,11 @@ export function createWorld(uniforms, heightmap) {
   planet.add(terrain.mesh);
   scene.add(planet);
 
-  // --- cloud shell ---
+  // --- cloud shell (from afar) ---
+  // A unit sphere scaled to the middle of the cloud layer (main.js), which is a
+  // few kilometres up on every planet.
   const clouds = new THREE.Mesh(
-    new THREE.SphereGeometry(uniforms.uCloudRadius.value, 128, 128),
+    new THREE.SphereGeometry(1, 192, 192),
     new THREE.ShaderMaterial({
       name: 'Clouds',
       uniforms,
@@ -56,6 +59,29 @@ export function createWorld(uniforms, heightmap) {
   clouds.renderOrder = 1;
   clouds.layers.set(LAYER.NEAR);
   scene.add(clouds);
+
+  // --- cloud layer as a volume (close to it, in flight) ---
+  // A screen-covering quad; the shader marches the rays through the layer.
+  const cloudVolume = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      name: 'CloudVolume',
+      uniforms,
+      vertexShader: CLOUD_VOLUME_VERT,
+      fragmentShader: CLOUD_VOLUME_FRAG,
+      // premultiplied colour over what is behind
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  cloudVolume.frustumCulled = false;
+  cloudVolume.renderOrder = 2;
+  cloudVolume.visible = false;
+  cloudVolume.layers.set(LAYER.NEAR);
+  scene.add(cloudVolume);
 
   // --- atmospheric scattering halo ---
   // Back faces of the shell cover the whole disc, so one pass handles both the
@@ -113,5 +139,5 @@ export function createWorld(uniforms, heightmap) {
   rings.add(ringFar, ringNear);
   scene.add(rings);
 
-  return { scene, sky, planet, terrain, clouds, atmosphere, rings };
+  return { scene, sky, planet, terrain, clouds, cloudVolume, atmosphere, rings };
 }

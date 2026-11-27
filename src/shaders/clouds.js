@@ -32,6 +32,7 @@ uniform float uCloudOpacity;
 uniform float uCloudFreq;
 uniform float uCloudDetail;   // 0 from orbit, 1 in close-ups
 uniform float uCloudRadius;
+uniform float uCloudVol;      // the volume takes over close to the layer
 
 varying vec3 vObjPos;
 varying vec3 vWorldPos;
@@ -98,7 +99,7 @@ void main() {
   // Slant paths through the deck are more opaque towards the limb.
   float alpha = smoothstep(0.0, 0.62, d);
   alpha = 1.0 - pow(1.0 - alpha, 1.0 / max(ndv, 0.35));
-  alpha *= uCloudOpacity * edge;
+  alpha *= uCloudOpacity * edge * (1.0 - uCloudVol);
 
   gl_FragColor = vec4(col, alpha);
 }

@@ -48,6 +48,7 @@ uniform float uLiquidEmissive;
 uniform float uLiquidSpec;
 uniform float uCloudShadow;
 uniform mat3 uCloudW2O;      // world -> cloud object space
+uniform float uCloudRadius;  // middle of the cloud layer
 
 // --- palette ---
 uniform vec3 uColDeep;
@@ -358,7 +359,7 @@ void main() {
     // Project along the sun ray up to the cloud deck, then ask the cloud
     // field how dense it is there.
     vec3 Lt = L - N * mu;
-    vec3 sp = normalize(N + Lt * (0.013 / max(mu, 0.22)));
+    vec3 sp = normalize(N + Lt * ((uCloudRadius - 1.0) / max(mu, 0.1)));
     shadow *= 1.0 - uCloudShadow * cloudDensity(uCloudW2O * sp);
   }
   shadow *= ringShadow(N);

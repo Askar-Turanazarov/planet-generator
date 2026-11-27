@@ -1182,6 +1182,14 @@ async function start() {
     const rung = (metres) => DETAIL.f0 * 2 ** Math.max(Math.round(Math.log2(radiusM / (DETAIL.f0 * metres))), 0);
     uniforms.uMetre.value = 1 / radiusM;
     uniforms.uHazeH.value = 1500 / radiusM;
+    // The cloud layer: 2-6 km up, the shell in its middle; extinction inside a
+    // cloud 0.01 per metre, billows of about 1.3 km.
+    uniforms.uCloudBase.value = 1 + 2000 / radiusM;
+    uniforms.uCloudTop.value = 1 + 6000 / radiusM;
+    uniforms.uCloudRadius.value = 1 + 4000 / radiusM;
+    uniforms.uCloudSigma.value = 0.01 * radiusM;
+    uniforms.uCloudNoise.value = radiusM / 1300;
+    world.clouds.scale.setScalar(uniforms.uCloudRadius.value);
     // Cracks 20 m, ripples 50 m (contours a few metres apart), dunes 400 m, swell 40 m.
     uniforms.uNearFreqA.value.set(rung(20), rung(50), rung(400), rung(40));
     // Chop 6 m, roads 3 km, lit blocks 150 m.
@@ -1221,7 +1229,7 @@ async function start() {
   function depthSplit() {
     const r = camera.position.length();
     const radiusKm = PRESETS[presetIndex].survey.radiusKm;
-    const top = Math.max(uniforms.uCloudRadius.value, 1.003);
+    const top = Math.max(uniforms.uCloudTop.value, 1.003);   // the cloud tops or the highest peaks
     split.near = THREE.MathUtils.clamp(0.3 * flight.clearance, 5e-4 / radiusKm, 0.05);
     split.far = Math.sqrt(Math.max(r * r - 1, 0)) + Math.sqrt(top * top - 1) + 0.01;
     const inside = ATMOSPHERE.shellRadius - r;
@@ -1332,15 +1340,22 @@ async function start() {
     // Frozen in flight: the ground must not slide under the camera.
     const spin = flight.active ? 0 : state.cur.rotSpeed * 0.25;
     world.planet.rotation.y += spin * dt;
-    world.clouds.rotation.y += (spin * 1.08 + 0.006) * dt;
+    // (In flight a 15 m/s wind: the orbit drift would be tens of km/s there.)
+    const drift = flight.active ? 15 / (PRESETS[presetIndex].survey.radiusKm * 1000) : 0.006;
+    world.clouds.rotation.y += (spin * 1.08 + drift) * dt;
     world.clouds.updateMatrixWorld();
     uniforms.uCloudW2O.value.setFromMatrix4(world.clouds.matrixWorld).transpose();
 
     world.rings.quaternion.copy(state.ringQuat);
     world.rings.visible = state.cur.ringsOn > 0.003;
-    world.clouds.visible = state.cur.cloudCover > 0.004;
-
     const dist = camera.position.length();
+    // Clouds: the shell from afar, the volume below about 45 km (crossfade to 25 km).
+    const cloudy = state.cur.cloudCover > 0.004;
+    const altKm = (dist - 1) * PRESETS[presetIndex].survey.radiusKm;
+    const vol = flight.active && cloudy ? 1 - THREE.MathUtils.smoothstep(altKm, 25, 45) : 0;
+    uniforms.uCloudVol.value = vol;
+    world.clouds.visible = cloudy && vol < 0.999;
+    world.cloudVolume.visible = vol > 0.001;
     const detailOctaves = updateDetail();
 
     scenePass.split = flight.active ? depthSplit() : null;
