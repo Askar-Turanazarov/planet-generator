@@ -1,5 +1,7 @@
 // Scene graph: five procedural objects, all driven by the shared uniforms.
 //
+// Each object sits on the layer of its depth range (scenePass.js).
+//
 // Draw order matters because three of them are translucent:
 //   sky -> planet -> clouds -> far half of the rings
 //       -> atmosphere (additive) -> near half of the rings
@@ -9,6 +11,7 @@ import { CLOUDS_VERT, CLOUDS_FRAG } from './shaders/clouds.js';
 import { ATMO_VERT, ATMO_FRAG } from './shaders/atmosphere.js';
 import { RINGS_VERT, RINGS_FRAG } from './shaders/rings.js';
 import { SKY_VERT, SKY_FRAG } from './shaders/sky.js';
+import { LAYER } from './scenePass.js';
 
 export function createWorld(uniforms) {
   const scene = new THREE.Scene();
@@ -28,6 +31,7 @@ export function createWorld(uniforms) {
   );
   sky.frustumCulled = false;
   sky.renderOrder = -10;
+  sky.layers.set(LAYER.FAR);
   scene.add(sky);
 
   // --- planetary surface ---
@@ -43,6 +47,7 @@ export function createWorld(uniforms) {
       depthWrite: true,
     }),
   );
+  planet.layers.set(LAYER.NEAR);
   scene.add(planet);
 
   // --- cloud shell ---
@@ -58,6 +63,7 @@ export function createWorld(uniforms) {
     }),
   );
   clouds.renderOrder = 1;
+  clouds.layers.set(LAYER.NEAR);
   scene.add(clouds);
 
   // --- atmospheric scattering halo ---
@@ -79,6 +85,7 @@ export function createWorld(uniforms) {
     }),
   );
   atmosphere.renderOrder = 3;
+  atmosphere.layers.set(LAYER.AIR);
   scene.add(atmosphere);
 
   // --- rings ---
@@ -101,6 +108,7 @@ export function createWorld(uniforms) {
     );
     mesh.rotation.x = -Math.PI / 2;   // lay the ring in the equatorial plane
     mesh.renderOrder = order;
+    mesh.layers.set(LAYER.FAR);
     return mesh;
   };
   const ringFar = makeRing(-1, 2);

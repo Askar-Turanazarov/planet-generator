@@ -3,7 +3,6 @@
 // HUD, and runs the frame loop.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createUniforms } from './uniforms.js';
@@ -18,6 +17,9 @@ import { createProbe, MAX_POINTS } from './probe.js';
 import { describePoint } from './survey.js';
 import { createWorld } from './world.js';
 import { CameraRig } from './camera.js';
+import { FlightCamera } from './flightCamera.js';
+import { ScenePass } from './scenePass.js';
+import { ATMOSPHERE } from './shaders/chunks.js';
 import { createHud } from './hud.js';
 import { createI18n } from './i18n.js';
 import { createBaker } from './bake.js';
@@ -94,13 +96,18 @@ async function start() {
   const world = createWorld(uniforms);
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 200);
+  camera.layers.enableAll();
   const rig = new CameraRig(camera, canvas);
+  const flight = new FlightCamera(camera, world.planet);
 
   // Scene is rendered into a half-float target (linear HDR), bloomed, then
   // tone mapped (ACES) and converted to sRGB by OutputPass.
+  // Its depth is a texture, so later passes can read how far the scene is.
   const hdrTarget = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+  hdrTarget.depthTexture = new THREE.DepthTexture(4, 4);
   const composer = new EffectComposer(renderer, hdrTarget);
-  composer.addPass(new RenderPass(world.scene, camera));
+  const scenePass = new ScenePass(world.scene, camera);
+  composer.addPass(scenePass);
   // Tight threshold: only the sun, the lit limb, lava and city lights bloom.
   const bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.35, 0.4, 0.85);
   // The glow is low-frequency by nature: build its blur pyramid from half
@@ -530,7 +537,12 @@ async function start() {
       spin: world.planet.rotation.y,
       // A marker set by a tour is the tour's, not the user's.
       marker: marker.dir && !marker.quiet ? latLonOf(marker.dir) : null,
+      flight: flight.active ? flightView() : null,
     };
+  }
+  function flightView() {
+    const pose = flight.getPose();
+    return { lat: pose.lat, lon: pose.lon, altKm: pose.alt * PRESETS[presetIndex].survey.radiusKm, heading: pose.heading, pitch: pose.pitch };
   }
 
   /** Put a decoded link on screen: at once (start-up) or behind a dip. */
@@ -560,6 +572,12 @@ async function start() {
         ? { dir: new THREE.Vector3().fromArray(view.camera.dir), dist: view.camera.dist }
         : cameraPose('overview');
       rig.jumpTo(pose.dir, pose.dist);
+      if (view.flight) {
+        const f = view.flight;
+        world.planet.updateMatrixWorld();
+        flight.setPose({ ...f, alt: f.altKm / view.preset.survey.radiusKm });
+        flight.mode = 'flight';
+      } else flight.release();
       if (view.marker) setMarker(dirOfLatLon(view.marker));
       else clearMarker();
       // Write the address back as this tab now sees it (fills in what the link left out).
@@ -1130,7 +1148,8 @@ async function start() {
   function updateDetail() {
     const dist = camera.position.length();
     const tanHalfFov = (FIELD * viewHeight) / framing.span;   // the live field of view
-    const pixel = (2 * tanHalfFov * (dist - 1)) / renderer.domElement.height;
+    const height = Math.max(dist - (flight.active ? flight.groundRadius : 1), 1e-7);
+    const pixel = (2 * tanHalfFov * height) / renderer.domElement.height;
     uniforms.uEps.value = Math.max(TERRAIN_STEP, pixel * 1.2);
     let detailOctaves = 0;
     DETAIL_WAVELENGTHS.forEach((wavelength, i) => {
@@ -1140,6 +1159,26 @@ async function start() {
     });
     uniforms.uCloudDetail.value = 1 - THREE.MathUtils.smoothstep(pixel, 0.0006, 0.0016);
     return detailOctaves;
+  }
+
+  /**
+   * Depth ranges of the split scene pass (scenePass.js) in flight. The near
+   * range starts at a third of the height above the ground (never closer than
+   * half a metre) and ends past the horizon of the highest thing drawn in it,
+   * the cloud deck; the far range is the orbit one, pulled in when the camera
+   * is inside the atmosphere shell so the shell is not clipped.
+   */
+  const split = { farNear: 0.05, farFar: 200, near: 0.05, far: 200 };
+  function depthSplit() {
+    const r = camera.position.length();
+    const radiusKm = PRESETS[presetIndex].survey.radiusKm;
+    const top = Math.max(uniforms.uCloudRadius.value, 1.003);
+    split.near = THREE.MathUtils.clamp(0.3 * flight.clearance, 5e-4 / radiusKm, 0.05);
+    split.far = Math.sqrt(Math.max(r * r - 1, 0)) + Math.sqrt(top * top - 1) + 0.01;
+    const inside = ATMOSPHERE.shellRadius - r;
+    split.farNear = inside > 0 ? THREE.MathUtils.clamp(0.5 * inside, 1e-5, 0.05) : 0.05;
+    split.farFar = 200;
+    return split;
   }
 
   /**
@@ -1215,7 +1254,10 @@ async function start() {
 
     updateTourSun(dt);
     state.update(dt);
-    rig.update(dt);
+    if (flight.active) {
+      rig.controls.enabled = false;
+      flight.apply();
+    } else rig.update(dt);
     updateFraming(dt);
     uniforms.uTime.value = time;
     if (cachesLost) {
@@ -1232,7 +1274,8 @@ async function start() {
     hud.setStatus(baker.busy ? 'status.busy' : 'status.live');
 
     // Spin: the cloud deck drifts on its own, slightly faster than the ground.
-    const spin = state.cur.rotSpeed * 0.25;
+    // Frozen in flight: the ground must not slide under the camera.
+    const spin = flight.active ? 0 : state.cur.rotSpeed * 0.25;
     world.planet.rotation.y += spin * dt;
     world.clouds.rotation.y += (spin * 1.08 + 0.006) * dt;
     world.clouds.updateMatrixWorld();
@@ -1245,6 +1288,7 @@ async function start() {
     const dist = camera.position.length();
     const detailOctaves = updateDetail();
 
+    scenePass.split = flight.active ? depthSplit() : null;
     if (rendering) composer.render(dt);
     gpuEnd();
     updateMarker(dt);
@@ -1302,7 +1346,7 @@ async function start() {
   };
   window.planetGenerator = {
     renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
-    probe, cards, link, marker, probeAt, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
+    probe, cards, link, marker, probeAt, flight, scenePass, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
   };
 }
 

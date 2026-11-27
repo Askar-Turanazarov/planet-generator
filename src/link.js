@@ -3,6 +3,7 @@
 //   #v=1&w=terran&s=4217&sea=0.62&c=0.612,0.220,0.758,3.60&a=1.234&m=41.30,69.24
 //   #v=1&tour=sky&step=3          (a step of a guided tour, see tours.js)
 //   #v=1&mission=dawn             (a mission of the photo expedition, see missions.js)
+//   ...&f=41.3,69.24,1.5,90,-5    (in flight: latitude, longitude, altitude km, heading, pitch)
 //
 // Only what differs from the archetype goes in, which keeps links short and
 // lets them survive a later change of an archetype's defaults. The hash, not
@@ -56,6 +57,7 @@ const same = (a, b, digits) => Math.abs(a - b) < 0.5 * Math.pow(10, -digits) + 1
  *   camera   { dir: [x, y, z], dist }   (direction from the planet centre)
  *   spin     planet rotation about its axis, radians
  *   marker   { lat, lon } in degrees, or null
+ *   flight   { lat, lon, altKm, heading, pitch } in degrees and km, or null (flightCamera.js)
  */
 export function encodeView(view) {
   // A tour step is a place of its own: the route says what is on screen.
@@ -83,6 +85,10 @@ export function encodeView(view) {
     parts.push(`a=${(((view.spin % turn) + turn) % turn).toFixed(3)}`);
   }
   if (view.marker) parts.push(`m=${view.marker.lat.toFixed(2)},${view.marker.lon.toFixed(2)}`);
+  if (view.flight) {
+    const f = view.flight;
+    parts.push(`f=${[f.lat.toFixed(4), f.lon.toFixed(4), trim(f.altKm, 3), trim(f.heading, 0), trim(f.pitch, 0)].join(',')}`);
+  }
   return `#${parts.join('&')}`;
 }
 
@@ -146,6 +152,13 @@ export function decodeView(hash, presets) {
   if (spin !== undefined) view.spin = spin;
   const marker = numbers('m', 2);
   if (marker) view.marker = { lat: clamp(marker[0], -90, 90), lon: ((marker[1] + 540) % 360) - 180 };
+  const flight = numbers('f', 5);
+  if (flight) {
+    view.flight = {
+      lat: clamp(flight[0], -90, 90), lon: ((flight[1] + 540) % 360) - 180,
+      altKm: clamp(flight[2], 0.05, 4000), heading: ((flight[3] % 360) + 360) % 360, pitch: clamp(flight[4], -89, 89),
+    };
+  }
   return view;
 }
 
