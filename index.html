@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Planet Generator 3D — Procedural Planetary Survey</title>
+  <link rel="stylesheet" href="css/hud.css">
+  <!-- Three.js r170 as ES modules; everything else is generated in real time. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="view" tabindex="-1" aria-label="Procedural planet viewport" data-i18n-aria="aria.viewport"></canvas>
+
+  <!-- Telemetry HUD: the panels are filled in by src/hud.js. The English text
+       here is only what shows before the script runs; data-i18n names the
+       dictionary key (src/i18n.js) that replaces it in the chosen language. -->
+  <div id="hud">
+    <section class="panel panel-left" aria-label="Planet identity and views" data-i18n-aria="aria.identity">
+      <header class="ident">
+        <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span id="ident-index">01 / 05</span></div>
+        <h1 id="planet-name">Terran Prime</h1>
+        <p id="planet-class">&nbsp;</p>
+      </header>
+      <div class="group">
+        <div class="group-title"><span data-i18n="group.archetype">Archetype</span><span>1–5</span></div>
+        <div id="preset-list" class="rows"></div>
+      </div>
+      <div class="group">
+        <div class="group-title"><span data-i18n="group.camera">Camera</span><span data-i18n="group.cameraHint">Fly-to</span></div>
+        <div id="camera-list" class="grid2"></div>
+      </div>
+      <div class="group">
+        <div class="group-title"><span data-i18n="group.telemetry">Telemetry</span><span id="tm-status">Live</span></div>
+        <dl id="telemetry" class="telemetry"></dl>
+      </div>
+    </section>
+
+    <section class="panel panel-right" id="controls" aria-label="Planet parameters" data-i18n-aria="aria.parameters"></section>
+
+    <!-- EN / RU / UZ; the buttons are built from the language list. -->
+    <div id="lang-switch" class="lang" role="group" aria-label="Interface language" data-i18n-aria="aria.language"></div>
+
+    <div class="hints">
+      <span><kbd data-i18n="hint.dragKey">Drag</kbd><span data-i18n="hint.drag">orbit</span></span>
+      <span><kbd data-i18n="hint.scrollKey">Scroll</kbd><span data-i18n="hint.scroll">zoom</span></span>
+      <span><kbd>R</kbd><span data-i18n="hint.reseed">reseed</span></span>
+      <span><kbd>H</kbd><span data-i18n="hint.cinematic">cinematic</span></span>
+    </div>
+  </div>
+
+  <button id="hud-toggle" type="button" title="Toggle interface (H)" data-i18n-title="toggle.title"><kbd>H</kbd><span>Hide HUD</span></button>
+
+  <div id="boot" role="status">
+    <div class="boot-box">
+      <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span data-i18n="kicker.boot">Boot</span></div>
+      <p id="boot-msg">Compiling shaders…</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

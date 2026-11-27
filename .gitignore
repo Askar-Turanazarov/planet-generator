@@ -1,0 +1,32 @@
+# Build output (rebuilt by `npm run build`, and by Vercel on every deploy)
+dist/
+
+# Dependencies (the project has none, but tools may create the folder)
+node_modules/
+
+# Secrets and local environment — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Vercel CLI link (project and organisation ids)
+.vercel/
+
+# Local editor / assistant settings
+.claude/
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini

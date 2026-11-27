@@ -1,0 +1,578 @@
+/* ==========================================================================
+   Planet Generator 3D — telemetry HUD
+   Monochrome graphite overlay: one surface colour, one hairline, white ink.
+   ========================================================================== */
+
+:root {
+  --surface: rgba(10, 12, 16, 0.78);
+  --line: rgba(255, 255, 255, 0.12);
+  --line-soft: rgba(255, 255, 255, 0.07);
+  --ink: rgba(255, 255, 255, 0.92);
+  --ink-dim: rgba(255, 255, 255, 0.56);
+  --ink-faint: rgba(255, 255, 255, 0.32);
+  --fill: rgba(255, 255, 255, 0.06);
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "JetBrains Mono", "Roboto Mono",
+    Consolas, "Liberation Mono", monospace;
+  --pad: 16px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+#view {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+#view:active {
+  cursor: grabbing;
+}
+
+/* ---------- layout ------------------------------------------------------ */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+body.cinematic #hud {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.4s ease, visibility 0s linear 0.4s;
+}
+
+.panel {
+  position: absolute;
+  top: var(--pad);
+  width: 292px;
+  max-height: calc(100% - var(--pad) * 2);
+  overflow-y: auto;
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.panel-left {
+  left: var(--pad);
+}
+
+.panel-right {
+  right: var(--pad);
+}
+
+.panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ---------- identity block ---------------------------------------------- */
+
+.ident {
+  padding: 16px 16px 14px;
+}
+
+.kicker,
+.group-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ident h1 {
+  margin: 10px 0 6px;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.ident p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-wrap: pretty;
+}
+
+/* ---------- groups ------------------------------------------------------ */
+
+.group {
+  padding: 13px 16px 15px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.group-title {
+  margin-bottom: 11px;
+}
+
+.group-title span:last-child {
+  color: var(--ink-faint);
+}
+
+.kicker span:last-child,
+.group-title span:last-child {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rows {
+  display: grid;
+  gap: 4px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+/* ---------- buttons ----------------------------------------------------- */
+
+button {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  color: var(--ink);
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn:hover {
+  background: var(--fill);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn:focus-visible,
+input:focus-visible,
+#hud-toggle:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.btn:active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.btn[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.92);
+  color: #0a0c10;
+}
+
+.btn .idx {
+  flex: none;
+  width: 16px;
+  color: var(--ink-faint);
+  font-size: 9.5px;
+}
+
+.btn[aria-pressed="true"] .idx,
+.btn[aria-pressed="true"] .tag {
+  color: rgba(10, 12, 16, 0.55);
+}
+
+.btn .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn .tag {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+}
+
+.btn.compact {
+  justify-content: center;
+  padding: 6px 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* ---------- parameter rows ---------------------------------------------- */
+
+.param {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  row-gap: 3px;
+  margin-bottom: 11px;
+}
+
+.param:last-child {
+  margin-bottom: 0;
+}
+
+.param label {
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.param output {
+  min-width: 6ch;
+  color: var(--ink);
+  text-align: right;
+}
+
+.param input[type="range"] {
+  grid-column: 1 / -1;
+}
+
+input[type="range"] {
+  --p: 50%;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+/* A flat two-tone hairline: filled part / remaining part. */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.88) var(--p),
+    rgba(255, 255, 255, 0.16) var(--p)
+  );
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 7px;
+  height: 13px;
+  margin-top: -5.5px;
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+input[type="range"]::-moz-range-progress {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 7px;
+  height: 13px;
+  background: #fff;
+  border: 0;
+  border-radius: 0;
+}
+
+.seed-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+}
+
+input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: 0.1em;
+}
+
+input[type="text"]:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.seed-row .btn {
+  width: auto;
+  white-space: nowrap;
+}
+
+/* Two-state segmented switch (rings on / off). */
+.switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.switch .btn {
+  justify-content: center;
+  text-align: center;
+}
+
+.switch .btn + .btn {
+  border-left: 0;
+}
+
+/* ---------- telemetry --------------------------------------------------- */
+
+.telemetry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.telemetry dt {
+  color: var(--ink-dim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.telemetry dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- language switch --------------------------------------------- */
+
+/* EN / RU / UZ, top centre: clear of both panels at every width. */
+.lang {
+  position: absolute;
+  top: var(--pad);
+  left: 50%;
+  display: flex;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  background: var(--surface);
+  border-radius: 2px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.lang .btn {
+  width: auto;
+  min-height: 26px;
+  padding: 4px 11px;
+  letter-spacing: 0.16em;
+}
+
+.lang .btn + .btn {
+  border-left: 0;
+}
+
+/* ---------- hints & toggle ---------------------------------------------- */
+
+/* The hints sit above the toggle and grow upwards: a longer language folds
+   onto a second line instead of running under the panels. */
+.hints {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 18px;
+  width: max-content;
+  max-width: calc(100% - (292px + var(--pad)) * 2 - 48px);
+  transform: translateX(-50%);
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  /* Keeps the line readable when the planet's limb passes behind it. */
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+.hints > span {
+  white-space: nowrap;
+}
+
+kbd {
+  font: inherit;
+  color: var(--ink-dim);
+}
+
+.hints kbd {
+  margin-right: 6px;
+}
+
+#hud-toggle {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--ink-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.4s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+#hud-toggle kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+#hud-toggle:hover {
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+body.cinematic #hud-toggle {
+  opacity: 0.22;
+}
+
+body.cinematic #hud-toggle:hover,
+body.cinematic #hud-toggle:focus-visible {
+  opacity: 1;
+}
+
+/* ---------- boot / error overlay ---------------------------------------- */
+
+#boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+  transition: opacity 0.6s ease;
+}
+
+#boot.done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-box {
+  width: min(420px, calc(100% - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.boot-box p {
+  margin: 12px 0 0;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- narrow screens ---------------------------------------------- */
+
+@media (max-width: 860px) {
+  .panel {
+    width: calc(50% - var(--pad) * 1.25);
+    max-height: 46%;
+    top: auto;
+    bottom: 60px;
+  }
+
+  .ident h1 {
+    font-size: 16px;
+  }
+
+  .hints {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .panel-left {
+    display: none;
+  }
+
+  .panel-right {
+    left: var(--pad);
+    right: var(--pad);
+    width: auto;
+    max-height: 38%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #hud,
+  #hud-toggle,
+  #boot,
+  .btn {
+    transition: none;
+  }
+}
