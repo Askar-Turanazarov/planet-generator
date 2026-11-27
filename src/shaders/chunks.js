@@ -636,6 +636,22 @@ export const GLSL_RELIEF_DETAIL = /* glsl */ `
 
 uniform float uRealScale;    // planet radii per elevation unit (kmPerUnit / radiusKm)
 
+// Sum of the octaves' values the last reliefDetail call evaluated, weighted
+// like the relief (about -1..1): a tone for the albedo at the same scales.
+float gDetailTone;
+
+// Noise coordinate of the point (hi + lo + rel) at frequency "freq", exact at
+// metre scale. freq must be DETAIL_F0 times a power of two (see the octaves).
+vec3 detailCoord(vec3 hi, vec3 lo, vec3 rel, float freq) {
+  return mod(hi * freq, NOISE_PERIOD) + lo * freq + rel * freq;
+}
+
+// Weight of a pattern of the given frequency seen through pixels of size px
+// (radii): 0 while it spans under 2.5 pixels, 1 from 5 pixels on.
+float nearFade(float freq, float px) {
+  return smoothstep(2.5, 5.0, 1.0 / (freq * px));
+}
+
 // Slope one octave contributes, from the cache's mountain term: plains stay
 // gentle, mountains break into crags (real slopes, not exaggerated).
 float detailSlope(vec4 shape, float relief) {
@@ -648,6 +664,7 @@ float detailSlope(vec4 shape, float relief) {
 // (gradient xyz, height).
 vec4 reliefDetail(vec3 hi, vec3 lo, vec3 rel, float fine, float coarse, float slope, float ridged) {
   vec4 acc = vec4(0.0);
+  gDetailTone = 0.0;
   float freq = DETAIL_F0;
   float amp = slope / (2.5 * uRealScale);
   for (int i = 0; i < DETAIL_OCTAVES; i++) {
@@ -657,7 +674,7 @@ vec4 reliefDetail(vec3 hi, vec3 lo, vec3 rel, float fine, float coarse, float sl
     }
     float w = smoothstep(1.5, 3.0, lambda / fine) * (1.0 - smoothstep(2.0, 4.0, lambda / coarse));
     if (w > 0.001) {
-      vec3 q = mod(hi * freq, NOISE_PERIOD) + lo * freq + rel * freq + uSeed.zxy * 2.7 + vec3(float(i) * 17.1, float(i) * -9.3, float(i) * 5.7);
+      vec3 q = detailCoord(hi, lo, rel, freq) + uSeed.zxy * 2.7 + vec3(float(i) * 17.1, float(i) * -9.3, float(i) * 5.7);
       vec4 n = snoiseD(q);
       // Ridged on mountains: crests instead of rounded hills.
       float s = n.w < 0.0 ? -1.0 : 1.0;
@@ -665,6 +682,7 @@ vec4 reliefDetail(vec3 hi, vec3 lo, vec3 rel, float fine, float coarse, float sl
       vec3 g = mix(n.xyz, -1.5 * s * n.xyz, ridged);
       acc.w += w * amp * lambda * v;
       acc.xyz += w * amp * g;
+      gDetailTone += w * v;
     }
     freq *= 2.0;
   }

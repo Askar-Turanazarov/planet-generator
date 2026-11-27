@@ -30,6 +30,12 @@ uniform float uBump;
 uniform float uExag;         // 1 from orbit: relief shading exaggerated as uBump says; 0 near the ground: real
 uniform float uPixelAngle;   // size of a pixel per unit of distance
 uniform float uLodK;         // terrain patches split closer than uLodK edges (terrain.js)
+uniform float uMetre;        // planet radii per metre
+// Frequencies of the close-up patterns (DETAIL_F0 times powers of two, so
+// detailCoord is exact): x cracks, y sand ripples, z dunes, w long swell;
+uniform vec4 uNearFreqA;
+// x short waves, y roads, z lit blocks.
+uniform vec4 uNearFreqB;
 uniform float uVeinMix;
 uniform float uVeinEmissive;
 
@@ -112,15 +118,18 @@ void main() {
   // gradient, so the fine relief needs no extra taps. It only shapes sunlit
   // ground, so the night side skips the noise altogether.
   vec4 det = vDetail;
+  // Size of a pixel on the ground (radii), stretched where the view grazes it.
+  float px = viewDist * uPixelAngle / sqrt(max(ndv, 0.08));
   float sunlit = smoothstep(-0.16, -0.06, mu);
+  gDetailTone = 0.0;
   if (sunlit > 0.0 && h0 - uSeaLevel > -0.012) {
-    // Octaves start fading in at 2.5 pixels (1.5 of this "pixel"): finer ones
-    // would only shimmer, and each costs a noise evaluation.
-    float pixel = 1.67 * viewDist * uPixelAngle / sqrt(max(ndv, 0.08));
+    // Octaves start fading in at 2.5 pixels (1.5 of the "fine" passed): finer
+    // ones would only shimmer, and each costs a noise evaluation.
     float ridged = sat01(0.3 + 1.5 * shape.y) * sat01(uRelief * uRidge);
-    det += sunlit * reliefDetail(vHi, vLo, vRel, pixel, viewDist / (32.0 * uLodK),
+    det += sunlit * reliefDetail(vHi, vLo, vRel, 1.67 * px, viewDist / (32.0 * uLodK),
         detailSlope(shape, uRelief * uRidge), ridged);
   }
+  float tone = clamp(gDetailTone * 0.6, -1.0, 1.0);
   float micro = det.w;
   h0 += micro;
   vec2 gradDet = vec2(dot(det.xyz, T), dot(det.xyz, B));
@@ -138,6 +147,14 @@ void main() {
   float reliefLod = log2(max(pixelArc * 0.7 * float(textureSize(uTerrainA, 0).x) / 1.5708, 1.0));
 
   float night = smoothstep(0.06, -0.16, mu);
+
+  // Close-up patterns tied to metres (their derivatives, before any branch):
+  // rock beds about 23 m thick, and the depth of the water in metres.
+  float metres = uRealScale / uMetre;            // metres per elevation unit
+  float bedX = bioH * metres * (6.2832 / 23.0) + aux.z * 9.0 + tone * 0.8;
+  float bedFade = 1.0 - smoothstep(0.4, 1.4, fwidth(bedX));
+  float depthM = max(-landH, 0.0) * metres;
+  float surfVis = 1.0 - smoothstep(0.8, 2.5, fwidth(depthM));
 
   // Polar caps.
   float ice = coverIce(lat, aux.w, bioH);
@@ -173,6 +190,9 @@ void main() {
     albedo = mix(albedo, mix(uColRock, uColRockB, strata * mix(0.12, 0.6, steep) + 0.15), rocky);
 
     float snow = coverSnow(lat, bioH, aux.w, grain, steep);
+    // Near the ground: thin beds on the cliffs, and the tone of the fine relief.
+    albedo *= 1.0 + 0.16 * sin(bedX) * bedFade * rocky * mix(0.4, 1.0, steep);
+    albedo *= 1.0 + 0.12 * tone;
     albedo = mix(albedo, uColSnow, snow);
 
     // Valleys sit darker than crests, down to the finest visible grain.
@@ -181,13 +201,49 @@ void main() {
 
     // Veins: tint, and glow if the archetype says they are molten.
     float veinV = clamp(aux.x, 0.0, 1.0);
+
+    // Joints in rock and ice (and incandescent ones in molten veins): the zero
+    // lines of one noise octave, about a pixel and a half wide.
+    float crackFade = nearFade(uNearFreqA.x, px);
+    float crack = 0.0;
+    if (crackFade > 0.0 && max(max(rocky, max(ice, max(snow, cold))), veinV) > 0.05) {
+      vec4 cn = snoiseD(detailCoord(vHi, vLo, vRel, uNearFreqA.x) + uSeed.yzx * 3.1);
+      // About 0.4 m wide, and never under a pixel and a half.
+      float thr = max(1.5 * px, 0.4 * uMetre) * uNearFreqA.x * length(cn.xyz);
+      crack = (1.0 - smoothstep(0.5 * thr, thr, abs(cn.w))) * crackFade;
+    }
+
+    // Wind-blown sand: ripples a few metres apart and dunes, as the contour
+    // lines of a noise octave with a gentle windward and a steep lee side.
+    float sandy = (1.0 - smoothstep(0.22, 0.42, moist)) * (1.0 - rocky) * (1.0 - snow) * (1.0 - ice);
+    if (sandy > 0.05) {
+      for (int k = 0; k < 2; k++) {
+        float freq = k == 0 ? uNearFreqA.y : uNearFreqA.z;
+        float bands = k == 0 ? 2.0 : 1.0;
+        // Squeezed three times across the meridians (whole factors keep the
+        // noise period): crests run north-south, across an east-west wind.
+        const vec3 SQUEEZE = vec3(3.0, 1.0, 3.0);
+        float vis = sandy * smoothstep(2.5, 5.0, 1.0 / (freq * 3.0 * bands * 1.5 * px));
+        if (vis > 0.0) {
+          vec4 dn = snoiseD(detailCoord(vHi, vLo, vRel, freq) * SQUEEZE + uSeed.xzy * (1.7 + float(k)));
+          float fr = fract(dn.w * bands);
+          float lee = fr < 0.75 ? 1.0 / 0.75 : -1.0 / 0.25;
+          vec3 g = dn.xyz * SQUEEZE;
+          g /= max(length(g), 1e-4);
+          g -= p * dot(g, p);
+          nObj = normalize(nObj - (k == 0 ? 0.10 : 0.16) * vis * lee * g);
+        }
+      }
+    }
     albedo = mix(albedo, uColVein, veinV * uVeinMix);
     if (uVeinEmissive > 0.001) {
       float pulse = 0.78 + 0.22 * sin(uTime * 0.7 + aux.z * 24.0);
       emissive += mix(uColVein, uColDeep, veinV * veinV) * veinV * pulse * uVeinEmissive;
+      emissive += uColVein * crack * smoothstep(0.2, 0.6, veinV) * uVeinEmissive * 2.5;
     }
 
     albedo = mix(albedo, uColIce, ice);
+    albedo *= 1.0 - 0.6 * crack * max(rocky, max(0.7 * ice, 0.5 * max(snow, cold)));
     specAmt = ice * 0.5;
     rough = 0.45;
 
@@ -195,7 +251,27 @@ void main() {
     // admitted only where the land is habitable and only after dark.
     if (uCityLights > 0.001 && night > 0.001) {
       float habitable = coverHabitable(lat, bioH, landH, moist, ice, snow);
-      emissive += uColCity * (cover.z * 3.0) * habitable * night * uCityLights * 3.0;
+      float lights = cover.z * 3.0 * habitable * night * uCityLights * 3.0;
+      // Close up the glow resolves into roads (contour lines of a noise of a
+      // few kilometres) and lit blocks; each layer stands in for its mean
+      // until it is large enough to show.
+      float roadFade = nearFade(uNearFreqB.y, px);
+      float blockFade = nearFade(uNearFreqB.z, px);
+      if (lights > 0.0 && roadFade > 0.0) {
+        vec4 rn = snoiseD(detailCoord(vHi, vLo, vRel, uNearFreqB.y) + uSeed.zyx * 2.3);
+        float thr = max(1.5 * px * uNearFreqB.y * length(rn.xyz), 0.015);
+        float road = 1.0 - smoothstep(0.5 * thr, thr, abs(rn.w));
+        float block = 0.15;
+        if (blockFade > 0.0) {
+          float bn = snoise(detailCoord(vHi, vLo, vRel, uNearFreqB.z) + uSeed.yxz * 1.9);
+          // Denser along the roads, thinning out between them.
+          float nearRoad = 1.0 - smoothstep(0.0, 0.35, abs(rn.w));
+          block = mix(0.15, smoothstep(0.2, 0.7, bn + 0.35 * nearRoad) * mix(0.35, 1.3, nearRoad), blockFade);
+        }
+        float pattern = (0.15 + 2.2 * mix(0.08, road, roadFade) + 1.6 * block) / 0.57;
+        lights *= mix(1.0, pattern, roadFade);
+      }
+      emissive += uColCity * lights;
     }
 
     // Anti-aliased shoreline: fade into the shallows over about a pixel.
@@ -223,11 +299,39 @@ void main() {
     rough = mix(0.36, 0.22, fade);
     specAmt = uLiquidSpec;
 
+    // Close up: a long swell and short chop, drifting; surf at the shore.
+    float swell = nearFade(uNearFreqA.w, px);
+    if (swell > 0.0) {
+      vec4 w1 = snoiseD(detailCoord(vHi, vLo, vRel, uNearFreqA.w) + vec3(uTime * 0.3, 0.0, uTime * 0.18));
+      vec3 g = w1.xyz * (0.10 * swell);
+      float chop = nearFade(uNearFreqB.x, px);
+      if (chop > 0.0) {
+        g += snoiseD(detailCoord(vHi, vLo, vRel, uNearFreqB.x) + vec3(-uTime * 0.8, uTime * 0.35, 0.0)).xyz * (0.06 * chop);
+      }
+      nObj = normalize(nObj + g - p * dot(g, p));
+      rough = mix(rough, 0.1, swell);
+      if (uLiquidEmissive < 0.001) {
+        float surf = 0.5 + 0.5 * sin(depthM * 2.2 - uTime * 1.4 + w1.w * 2.5);
+        float foam = (1.0 - smoothstep(0.3, 2.5, depthM)) * smoothstep(0.55, 0.9, surf + 0.25 * w1.w) * surfVis * swell;
+        albedo = mix(albedo, vec3(0.8, 0.82, 0.83), foam * 0.85);
+        rough = mix(rough, 0.9, foam);
+        specAmt *= 1.0 - foam;
+      }
+    }
+
     if (uLiquidEmissive > 0.001) {
       // Molten sea: a drifting crust broken by incandescent cracks.
       float crust = fbm(p * 14.0 + uSeed + vec3(0.0, uTime * 0.01, 0.0), 3.0);
       float cracks = max(1.0 - abs(snoise(p * 30.0 + uSeed.yzx + crust)), 0.0);
       float heat = clamp(0.08 + 0.85 * crust + 0.9 * pow(cracks, 6.0) + 0.22 * exp(-depth * 60.0), 0.0, 1.0);
+      // Close up the crust breaks into plates with glowing seams.
+      float seamFade = nearFade(uNearFreqA.z, px);
+      if (seamFade > 0.0) {
+        vec4 sn = snoiseD(detailCoord(vHi, vLo, vRel, uNearFreqA.z) + vec3(0.0, uTime * 0.03, 0.0));
+        float thr = max(px * uNearFreqA.z * length(sn.xyz), 0.012);
+        float seam = 1.0 - smoothstep(0.5 * thr, thr, abs(sn.w));
+        heat = clamp(mix(heat, heat * 0.6, seamFade) + seam * seamFade * 0.45, 0.0, 1.0);
+      }
       albedo = mix(vec3(0.02, 0.015, 0.012), uColShallow * 0.2, heat);
       emissive += mix(uColShallow, uColDeep, heat * heat) * heat * heat * 2.6 * uLiquidEmissive;
     }

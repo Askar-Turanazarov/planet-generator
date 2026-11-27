@@ -40,6 +40,9 @@ export function createUniforms() {
     uPixelAngle: num(0.001),      // pixel size per unit of distance
     uLodK: num(2.5),
     uLodRadius: num(1),
+    uMetre: num(1 / 6371000),     // planet radii per metre
+    uNearFreqA: vec4(),           // close-up pattern frequencies (main.js nearFrequencies)
+    uNearFreqB: vec4(),
     uLocalToView: { value: new THREE.Matrix3() },
     uTerrainA: tex(),
     uTerrainB: tex(),

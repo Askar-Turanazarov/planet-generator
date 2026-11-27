@@ -89,8 +89,7 @@ async function start() {
     const log = [gl.getProgramInfoLog(program), gl.getShaderInfoLog(vs), gl.getShaderInfoLog(fs)]
       .filter(Boolean)
       .join('\n');
-    console.error(`Shader compilation failed:\n${log}`);
-    fail(`${i18n.t('boot.shaderFailed')}\n${log}`);
+    console.error(`Shader compilation failed:\n${log}`);    fail(`${i18n.t('boot.shaderFailed')}\n${log}`);
   };
 
   const uniforms = createUniforms();
@@ -1162,11 +1161,30 @@ async function start() {
     uniforms.uExag.value = THREE.MathUtils.smoothstep(Math.log(height), Math.log(0.003), Math.log(0.25));
     const survey = PRESETS[presetIndex].survey;
     uniforms.uRealScale.value = survey.kmPerUnit / survey.radiusKm;
+    nearFrequencies(survey.radiusKm);
     world.terrain.update(camera, world.planet, survey.radiusKm, flight.active ? flight.groundRadius : 1);
     // Octaves of fine relief wider than a pixel and a half (GLSL_RELIEF_DETAIL).
     const detailOctaves = THREE.MathUtils.clamp(Math.log2(1 / (DETAIL.f0 * 1.5 * pixel)) + 1, 0, DETAIL.octaves);
     uniforms.uCloudDetail.value = 1 - THREE.MathUtils.smoothstep(pixel, 0.0006, 0.0016);
     return detailOctaves;
+  }
+
+  /**
+   * Frequencies of the close-up patterns of the surface shader (planet.js) for
+   * a planet of this radius: each the octave of the detail ladder nearest to a
+   * size in metres, so its noise coordinate is exact (detailCoord).
+   */
+  let nearRadiusKm = 0;
+  function nearFrequencies(radiusKm) {
+    if (radiusKm === nearRadiusKm) return;
+    nearRadiusKm = radiusKm;
+    const radiusM = radiusKm * 1000;
+    const rung = (metres) => DETAIL.f0 * 2 ** Math.max(Math.round(Math.log2(radiusM / (DETAIL.f0 * metres))), 0);
+    uniforms.uMetre.value = 1 / radiusM;
+    // Cracks 20 m, ripples 50 m (contours a few metres apart), dunes 400 m, swell 40 m.
+    uniforms.uNearFreqA.value.set(rung(20), rung(50), rung(400), rung(40));
+    // Chop 6 m, roads 3 km, lit blocks 150 m.
+    uniforms.uNearFreqB.value.set(rung(6), rung(3000), rung(150), 0);
   }
 
   /**
