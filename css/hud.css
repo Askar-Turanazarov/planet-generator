@@ -1644,6 +1644,170 @@ body.has-card .hints {
   }
 }
 
+/* ---------- flight (flight.js) ------------------------------------------ */
+
+.group-flight .flight-go {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+body:not(.flying) .flight-strip,
+body:not(.flying) .flight-panel {
+  display: none;
+}
+
+body.flying .hints {
+  display: none;
+}
+
+/* Telemetry strip, centred over the free part of the screen, at its top. */
+.flight-strip {
+  position: absolute;
+  top: calc(var(--safe-t) + 12px);
+  left: calc(var(--free-left) + (100% - var(--free-left) - var(--free-right)) / 2);
+  display: flex;
+  gap: 14px;
+  padding: 6px 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fs-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fs-name {
+  color: var(--ink-faint);
+  font-size: 8px;
+}
+
+.fs-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.fs-phase {
+  justify-content: flex-end;
+  color: var(--ink-dim);
+}
+
+/* Flight panel: character, back to orbit, touch scheme or the keys. */
+.flight-panel {
+  position: absolute;
+  bottom: calc(var(--free-bottom) + var(--safe-b) + 14px);
+  left: calc(var(--free-left) + (100% - var(--free-left) - var(--free-right)) / 2);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - var(--free-left) - var(--free-right) - 24px);
+  transform: translateX(-50%);
+}
+
+.flight-panel .switch {
+  min-width: 170px;
+}
+
+.flight-keys {
+  width: 100%;
+  color: var(--ink-dim);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Touch: joystick on the left, speed / height on the right, above the panel. */
+.flight-touch {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--free-bottom) + var(--safe-b) + 84px);
+  height: 0;
+  pointer-events: none;
+}
+
+.ft-stick,
+.ft-slider {
+  position: absolute;
+  bottom: 0;
+  pointer-events: auto;
+  touch-action: none;
+  background: rgba(10, 12, 16, 0.35);
+  border: 1px solid var(--line);
+}
+
+.ft-stick {
+  left: calc(var(--safe-l) + 24px);
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+}
+
+.ft-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--line);
+}
+
+.ft-slider {
+  right: calc(var(--safe-r) + 24px);
+  width: 44px;
+  height: 120px;
+  border-radius: 22px;
+}
+
+.ft-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 24px;
+  margin: -12px 0 0 -17px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ft-name {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--ink-dim);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .flight-strip {
+    gap: 10px;
+    padding: 5px 8px;
+  }
+
+  .fs-vs,
+  .fs-ground {
+    display: none;
+  }
+}
+
 /* Cinematic mode hides the interface, so the whole screen is free.
    (Last on purpose: it has to win over every layout above.) */
 body.cinematic {

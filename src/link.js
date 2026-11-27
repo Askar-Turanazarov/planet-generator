@@ -87,7 +87,7 @@ export function encodeView(view) {
   if (view.marker) parts.push(`m=${view.marker.lat.toFixed(2)},${view.marker.lon.toFixed(2)}`);
   if (view.flight) {
     const f = view.flight;
-    parts.push(`f=${[f.lat.toFixed(4), f.lon.toFixed(4), trim(f.altKm, 3), trim(f.heading, 0), trim(f.pitch, 0)].join(',')}`);
+    parts.push(`f=${[f.lat.toFixed(4), f.lon.toFixed(4), trim(f.altKm, 3), trim(Math.round(f.heading) % 360, 0), trim(f.pitch, 0)].join(',')}`);
   }
   return `#${parts.join('&')}`;
 }

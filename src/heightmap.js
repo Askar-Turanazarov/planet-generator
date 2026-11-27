@@ -6,7 +6,8 @@
 // (base + relief * ridge * mountain), so moving the relief slider needs no
 // new read. The terrain quadtree culls with the height range of each patch,
 // the flight knows roughly how high the ground is, and the quick targets
-// (stage H) search it for peaks and coasts.
+// (stage H) search it for peaks, coasts and (with the city-light density read
+// alongside) the brightest city.
 //
 // The grid uses the face table of terrain.js: point = n + a u + b v, a and b
 // in [-1, 1], sampled at cell centres.
@@ -33,6 +34,7 @@ void main() {
 const READ_FRAG = /* glsl */ `
 precision highp float;
 uniform samplerCube uTerrainA;
+uniform samplerCube uTerrainB;
 uniform float uSize;
 void main() {
   vec2 cell = floor(gl_FragCoord.xy);
@@ -46,7 +48,7 @@ void main() {
   else if (face < 4.5) { n = vec3(0.0, 0.0, 1.0); u = vec3(1.0, 0.0, 0.0); v = vec3(0.0, 1.0, 0.0); }
   else { n = vec3(0.0, 0.0, -1.0); u = vec3(-1.0, 0.0, 0.0); v = vec3(0.0, 1.0, 0.0); }
   vec3 dir = normalize(n + ab.x * u + ab.y * v);
-  gl_FragColor = vec4(textureLod(uTerrainA, dir, 0.0).xy, 0.0, 1.0);
+  gl_FragColor = vec4(textureLod(uTerrainA, dir, 0.0).xy, textureLod(uTerrainB, dir, 0.0).z, 1.0);
 }
 `;
 
@@ -64,7 +66,7 @@ export function createHeightmap(renderer, uniforms) {
   });
   const material = new THREE.ShaderMaterial({
     name: 'HeightRead',
-    uniforms: { uTerrainA: uniforms.uTerrainA, uSize: { value: size } },
+    uniforms: { uTerrainA: uniforms.uTerrainA, uTerrainB: uniforms.uTerrainB, uSize: { value: size } },
     vertexShader: READ_VERT,
     fragmentShader: READ_FRAG,
     depthTest: false,
@@ -82,6 +84,7 @@ export function createHeightmap(renderer, uniforms) {
   const base = new Float32Array(size * size * 6);
   const mount = new Float32Array(size * size * 6);
   const elevation = new Float32Array(size * size * 6);
+  const city = new Float32Array(size * size * 6);   // city-light density (cache, for the quick targets)
   // Min / max pyramids per face, built for the current relief factor.
   let pyramid = null;
   let factor = NaN;
@@ -97,6 +100,7 @@ export function createHeightmap(renderer, uniforms) {
     for (let i = 0; i < base.length; i++) {
       base[i] = decode(raw[i * 4]);
       mount[i] = decode(raw[i * 4 + 1]);
+      city[i] = decode(raw[i * 4 + 2]);
     }
     factor = NaN;
     ready = true;
@@ -204,7 +208,7 @@ export function createHeightmap(renderer, uniforms) {
     grid() {
       if (!ready) return null;
       refresh();
-      return { size, elevation };
+      return { size, elevation, city, faces: FACE_AXES };
     },
   };
 }

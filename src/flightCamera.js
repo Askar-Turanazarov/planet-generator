@@ -44,6 +44,8 @@ export class FlightCamera {
     // Radius of the ground under the camera (planet radii); refreshed by the
     // ground probe (stage H). 1 until something better is known.
     this.groundRadius = 1;
+    // Extra turn on top of quat (a light shake in the clouds, flight.js).
+    this.shake = new THREE.Quaternion();
     this._up = new THREE.Vector3();
     this._east = new THREE.Vector3();
     this._north = new THREE.Vector3();
@@ -113,7 +115,7 @@ export class FlightCamera {
   /** Hand the pose to the three.js camera. */
   apply() {
     this.camera.position.copy(this.pos);
-    this.camera.quaternion.copy(this.quat);
+    this.camera.quaternion.copy(this.quat).multiply(this.shake);
     this.camera.updateMatrixWorld();
   }
 

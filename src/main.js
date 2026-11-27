@@ -21,6 +21,8 @@ import { createGroundProbe } from './groundProbe.js';
 import { TERRAIN_GRID } from './shaders/terrain.js';
 import { CameraRig } from './camera.js';
 import { FlightCamera } from './flightCamera.js';
+import { createFlightControl } from './flight.js';
+import { findTarget } from './targets.js';
 import { ScenePass } from './scenePass.js';
 import { ATMOSPHERE, DETAIL } from './shaders/chunks.js';
 import { createHud } from './hud.js';
@@ -89,7 +91,8 @@ async function start() {
     const log = [gl.getProgramInfoLog(program), gl.getShaderInfoLog(vs), gl.getShaderInfoLog(fs)]
       .filter(Boolean)
       .join('\n');
-    console.error(`Shader compilation failed:\n${log}`);    fail(`${i18n.t('boot.shaderFailed')}\n${log}`);
+    console.error(`Shader compilation failed:\n${log}`);
+    fail(`${i18n.t('boot.shaderFailed')}\n${log}`);
   };
 
   const uniforms = createUniforms();
@@ -583,7 +586,9 @@ async function start() {
         world.planet.updateMatrixWorld();
         flight.setPose({ ...f, alt: f.altKm / view.preset.survey.radiusKm });
         flight.mode = 'flight';
+        flightControl?.adopt();
       } else flight.release();
+      flightControl?.syncUi();
       if (view.marker) setMarker(dirOfLatLon(view.marker));
       else clearMarker();
       // Write the address back as this tab now sees it (fills in what the link left out).
@@ -615,6 +620,44 @@ async function start() {
   // Share
   // ------------------------------------------------------------------
   const cards = createCards(i18n);
+
+  // ------------------------------------------------------------------
+  // Flight: descent, flying, ascent (flight.js)
+  // ------------------------------------------------------------------
+  const flightControl = createFlightControl({
+    flight,
+    camera,
+    canvas,
+    rig,
+    i18n,
+    toast: (key) => cards.toast(key),
+    env: {
+      radiusKm: () => PRESETS[presetIndex].survey.radiusKm,
+      minClearanceM: () => 150,
+      clouds: () => ({ base: uniforms.uCloudBase.value, top: uniforms.uCloudTop.value, cover: state.cur.cloudCover }),
+      groundAhead,
+      target(kind) {
+        const near = camera.position.clone().normalize().applyQuaternion(world.planet.quaternion.clone().invert());
+        const sea = uniforms.uSeaLevel.value;
+        const found = findTarget(heightmap, kind, sea, near);
+        if (!found) return null;
+        return {
+          dir: found.dir.applyQuaternion(world.planet.quaternion),
+          radius: 1 + (Math.max(found.elevation, sea) - uniforms.uBiomeDatum.value) * uniforms.uRealScale.value,
+        };
+      },
+      nightAt(dir) {
+        // The sun behind the planet from there, a little past midnight towards dawn.
+        const current = state.get('sunAngle');
+        const want = THREE.MathUtils.radToDeg(Math.atan2(-dir.z, -dir.x)) + 25;
+        const sun = current + THREE.MathUtils.euclideanModulo(want - current + 180, 360) - 180;
+        hud.syncSliders({ sunAngle: THREE.MathUtils.euclideanModulo(sun, 360) });
+        tourSun = { from: state.cur.sunAngle, to: sun, t: 0 };
+      },
+      markerDir: () => (marker.dir ? marker.dir.clone().applyQuaternion(world.planet.quaternion) : null),
+      changed: () => link.touch(),
+    },
+  });
   async function copyText(text) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
@@ -1201,10 +1244,23 @@ async function start() {
    * drawn ground, a frame or two old), or the coarse height map until there is one.
    */
   const groundDir = new THREE.Vector3();
-  const groundSample = [{ dir: groundDir, fine: 0 }];
+  // Under the camera, then 1.5 s and 3 s ahead along the course (the ground guard).
+  const aheadDirs = [new THREE.Vector3(), new THREE.Vector3()];
+  const groundSample = [{ dir: groundDir, fine: 0 }, { dir: aheadDirs[0], fine: 0 }, { dir: aheadDirs[1], fine: 0 }];
+  const toPlanet = new THREE.Quaternion();
+  function groundAhead() {
+    const values = !baker.busy && heightmap.ready ? ground?.values : null;
+    if (!values) return null;
+    const sea = uniforms.uSeaLevel.value;
+    const h = Math.max(values[1], values[2], sea);
+    return 1 + (h - uniforms.uBiomeDatum.value) * uniforms.uRealScale.value;
+  }
   function updateGround() {
     groundDir.copy(camera.position);
     world.planet.worldToLocal(groundDir).normalize();
+    flightControl.aheadDirs(aheadDirs);
+    toPlanet.copy(world.planet.quaternion).invert();
+    aheadDirs.forEach((dir) => dir.applyQuaternion(toPlanet));
     const settled = !baker.busy && heightmap.ready;
     let h = settled && ground?.values ? ground.values[0] : null;
     if (h === null) h = heightmap.elevationAt(groundDir);
@@ -1214,6 +1270,8 @@ async function start() {
     if (settled && ground) {
       // The grid spacing the terrain has right under the camera (terrain.js).
       groundSample[0].fine = Math.max(flight.clearance, 1e-7) / (TERRAIN_GRID * world.terrain.settings.lodK) * 1.3333;
+      groundSample[1].fine = groundSample[0].fine * 2;
+      groundSample[2].fine = groundSample[0].fine * 2;
       ground.request(uniforms, groundSample);
     }
   }
@@ -1311,6 +1369,7 @@ async function start() {
 
     updateTourSun(dt);
     state.update(dt);
+    flightControl.update(dt);
     if (flight.active) {
       rig.controls.enabled = false;
       flight.apply();
@@ -1420,7 +1479,7 @@ async function start() {
   };
   window.planetGenerator = {
     renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
-    probe, cards, link, marker, probeAt, flight, scenePass, heightmap, ground, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
+    probe, cards, link, marker, probeAt, flight, flightControl, scenePass, heightmap, ground, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
   };
 }
 
