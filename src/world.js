@@ -4,7 +4,7 @@
 //
 // Draw order matters because three of them are translucent:
 //   sky -> planet -> clouds -> far half of the rings
-//       -> atmosphere (additive) -> near half of the rings
+//       -> atmosphere (adds the air, dims what is behind it) -> near half of the rings
 import * as THREE from 'three';
 import { createTerrain } from './terrain.js';
 import { CLOUDS_VERT, CLOUDS_FRAG } from './shaders/clouds.js';
@@ -69,7 +69,12 @@ export function createWorld(uniforms, heightmap) {
       vertexShader: ATMO_VERT,
       fragmentShader: ATMO_FRAG,
       side: THREE.BackSide,
-      blending: THREE.AdditiveBlending,
+      // colour + behind * alpha (atmosphere.js)
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.SrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
       transparent: true,
       depthTest: false,
       depthWrite: false,

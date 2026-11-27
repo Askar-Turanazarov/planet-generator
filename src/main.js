@@ -1181,6 +1181,7 @@ async function start() {
     const radiusM = radiusKm * 1000;
     const rung = (metres) => DETAIL.f0 * 2 ** Math.max(Math.round(Math.log2(radiusM / (DETAIL.f0 * metres))), 0);
     uniforms.uMetre.value = 1 / radiusM;
+    uniforms.uHazeH.value = 1500 / radiusM;
     // Cracks 20 m, ripples 50 m (contours a few metres apart), dunes 400 m, swell 40 m.
     uniforms.uNearFreqA.value.set(rung(20), rung(50), rung(400), rung(40));
     // Chop 6 m, roads 3 km, lit blocks 150 m.
@@ -1343,6 +1344,10 @@ async function start() {
     const detailOctaves = updateDetail();
 
     scenePass.split = flight.active ? depthSplit() : null;
+    // In flight the terrain adds its own air, and the sky's rays stop at the
+    // ground under the camera when it lies below the sphere R = 1.
+    uniforms.uAerial.value = flight.active ? 1 : 0;
+    uniforms.uGroundR.value = flight.active ? Math.min(1, dist - flight.clearance - 1e-5) : 1;
     if (rendering) composer.render(dt);
     gpuEnd();
     updateMarker(dt);

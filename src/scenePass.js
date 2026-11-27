@@ -7,10 +7,10 @@
 // buffer (which writes gl_FragDepth and loses early depth rejection), the
 // scene is split by layers and drawn in three ranges into the same target:
 //   FAR   sky, rings                       range of the orbit view
-//   NEAR  terrain, clouds                  near / far from the horizon
 //   AIR   atmosphere shell (no depth test) range of the orbit view
-// The depth buffer is cleared before NEAR, so the terrain occludes the far
-// layer. Everything in FAR is beyond the horizon or above it, which is what
+//   NEAR  terrain, clouds                  near / far from the horizon
+// The depth buffer is cleared before NEAR, so the terrain covers the sky and
+// the air behind it (it adds the air in front of it itself: uAerial). Everything in FAR is beyond the horizon or above it, which is what
 // makes the split exact.
 import { Pass } from 'three/addons/postprocessing/Pass.js';
 
@@ -39,9 +39,9 @@ export class ScenePass extends Pass {
     } else {
       const { near, far } = camera;
       this.draw(renderer, LAYER.FAR, split.farNear, split.farFar);
+      this.draw(renderer, LAYER.AIR, split.farNear, split.farFar);
       renderer.clearDepth();
       this.draw(renderer, LAYER.NEAR, split.near, split.far);
-      this.draw(renderer, LAYER.AIR, split.farNear, split.farFar);
       camera.layers.enableAll();
       camera.near = near;
       camera.far = far;

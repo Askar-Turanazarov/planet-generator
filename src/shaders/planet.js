@@ -5,12 +5,14 @@
 // level, relief, ice, lights, palette) is assembled here from uniforms, so the
 // controls never trigger a rebuild of anything.
 import { GLSL_COMMON, GLSL_NOISE, GLSL_CLOUDS, GLSL_RINGS, GLSL_SURFACE, GLSL_RELIEF_DETAIL } from './chunks.js';
+import { GLSL_AIR } from './air.js';
 
 export const PLANET_FRAG = /* glsl */ `
 ${GLSL_COMMON}
 ${GLSL_NOISE}
 ${GLSL_CLOUDS}
 ${GLSL_RINGS}
+${GLSL_AIR}
 ${GLSL_SURFACE}
 ${GLSL_RELIEF_DETAIL}
 
@@ -31,6 +33,7 @@ uniform float uExag;         // 1 from orbit: relief shading exaggerated as uBum
 uniform float uPixelAngle;   // size of a pixel per unit of distance
 uniform float uLodK;         // terrain patches split closer than uLodK edges (terrain.js)
 uniform float uMetre;        // planet radii per metre
+uniform float uAerial;       // 1 in flight: aerial perspective over the real distance (air.js)
 // Frequencies of the close-up patterns (DETAIL_F0 times powers of two, so
 // detailCoord is exact): x cracks, y sand ripples, z dunes, w long swell;
 uniform vec4 uNearFreqA;
@@ -386,7 +389,22 @@ void main() {
   }
 
   col += emissive;
-  col *= viewExtinction(ndv);
+  if (uAerial > 0.5) {
+    // In flight the atmosphere shell is drawn behind the terrain, so the
+    // surface adds the air between it and the camera itself.
+    vec3 ro = cameraPosition;
+    vec3 rd = -V;
+    vec2 ta = raySphere(ro, rd, R_ATMO);
+    float t0 = max(ta.x, 0.0);
+    float t1 = min(viewDist, ta.y);
+    if (t1 > t0) {
+      vec3 trans;
+      vec3 air = airLight(ro, rd, t0, t1, 6, 1.0, airJitter(), trans);
+      col = col * trans + air;
+    }
+  } else {
+    col *= viewExtinction(ndv);
+  }
 
   // Alpha is the analytic coverage of the silhouette (limb anti-aliasing).
   gl_FragColor = vec4(col, mix(1.0, limbCoverage(cameraPosition, -V, R_PLANET), uExag));
