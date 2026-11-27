@@ -2,8 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover lets the scene run under the notch; the HUD keeps
+       clear of it with env(safe-area-inset-*). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Planet Generator 3D — Procedural Planetary Survey</title>
+  <meta name="description" content="Real-time procedural planet generator: terrain, oceans, clouds, atmosphere and rings synthesised entirely in shaders. Runs in the browser on desktop, tablet and phone.">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Planet 3D">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Planet Generator 3D">
+  <meta property="og:description" content="Real-time procedural planets in the browser: no textures, no models, only shaders.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/hud.css">
   <!-- Three.js r170 as ES modules; everything else is generated in real time. -->
   <script type="importmap">
@@ -18,44 +33,67 @@
 <body>
   <canvas id="view" tabindex="-1" aria-label="Procedural planet viewport" data-i18n-aria="aria.viewport"></canvas>
 
+  <!-- Invisible: the stylesheet stretches it over the part of the screen the
+       interface leaves free, and the camera frames the planet inside it. -->
+  <div id="frame" aria-hidden="true"></div>
+
   <!-- Telemetry HUD: the panels are filled in by src/hud.js. The English text
        here is only what shows before the script runs; data-i18n names the
        dictionary key (src/i18n.js) that replaces it in the chosen language. -->
   <div id="hud">
-    <section class="panel panel-left" aria-label="Planet identity and views" data-i18n-aria="aria.identity">
-      <header class="ident">
-        <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span id="ident-index">01 / 05</span></div>
-        <h1 id="planet-name">Terran Prime</h1>
-        <p id="planet-class">&nbsp;</p>
-      </header>
-      <div class="group">
-        <div class="group-title"><span data-i18n="group.archetype">Archetype</span><span>1–5</span></div>
-        <div id="preset-list" class="rows"></div>
-      </div>
-      <div class="group">
-        <div class="group-title"><span data-i18n="group.camera">Camera</span><span data-i18n="group.cameraHint">Fly-to</span></div>
-        <div id="camera-list" class="grid2"></div>
-      </div>
-      <div class="group">
-        <div class="group-title"><span data-i18n="group.telemetry">Telemetry</span><span id="tm-status">Live</span></div>
-        <dl id="telemetry" class="telemetry"></dl>
-      </div>
-    </section>
+    <!-- Phone / tablet layout only: the name of the world, top left. -->
+    <div class="topbar" aria-hidden="true">
+      <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span id="top-index">01 / 05</span></div>
+      <div id="top-name" class="top-name">Terran Prime</div>
+    </div>
 
-    <section class="panel panel-right" id="controls" aria-label="Planet parameters" data-i18n-aria="aria.parameters"></section>
+    <!-- On a desktop this wrapper is transparent to layout and the two panels
+         sit at the screen edges. On a phone or tablet it is the sheet the tab
+         bar opens, and data-tab says which tab a block belongs to. -->
+    <div id="sheet">
+      <section class="panel panel-left" aria-label="Planet identity and views" data-i18n-aria="aria.identity">
+        <header class="ident" data-tab="worlds">
+          <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span id="ident-index">01 / 05</span></div>
+          <h1 id="planet-name">Terran Prime</h1>
+          <p id="planet-class">&nbsp;</p>
+        </header>
+        <div class="group" data-tab="worlds">
+          <div class="group-title"><span data-i18n="group.archetype">Archetype</span><span class="hotkey">1–5</span></div>
+          <div id="preset-list" class="rows"></div>
+        </div>
+        <div class="group" data-tab="view">
+          <div class="group-title"><span data-i18n="group.camera">Camera</span><span data-i18n="group.cameraHint">Fly-to</span></div>
+          <div id="camera-list" class="grid2"></div>
+        </div>
+        <div class="group group-telemetry" data-tab="system">
+          <div class="group-title"><span data-i18n="group.telemetry">Telemetry</span><span id="tm-status">Live</span></div>
+          <dl id="telemetry" class="telemetry"></dl>
+        </div>
+      </section>
+
+      <section class="panel panel-right" id="controls" aria-label="Planet parameters" data-i18n-aria="aria.parameters"></section>
+    </div>
 
     <!-- EN / RU / UZ; the buttons are built from the language list. -->
     <div id="lang-switch" class="lang" role="group" aria-label="Interface language" data-i18n-aria="aria.language"></div>
 
     <div class="hints">
-      <span><kbd data-i18n="hint.dragKey">Drag</kbd><span data-i18n="hint.drag">orbit</span></span>
-      <span><kbd data-i18n="hint.scrollKey">Scroll</kbd><span data-i18n="hint.scroll">zoom</span></span>
-      <span><kbd>R</kbd><span data-i18n="hint.reseed">reseed</span></span>
-      <span><kbd>H</kbd><span data-i18n="hint.cinematic">cinematic</span></span>
+      <span class="mouse-only"><kbd data-i18n="hint.dragKey">Drag</kbd><span data-i18n="hint.drag">orbit</span></span>
+      <span class="mouse-only"><kbd data-i18n="hint.scrollKey">Scroll</kbd><span data-i18n="hint.scroll">zoom</span></span>
+      <span class="touch-only"><kbd data-i18n="hint.touchDragKey">Drag</kbd><span data-i18n="hint.drag">orbit</span></span>
+      <span class="touch-only"><kbd data-i18n="hint.touchZoomKey">Pinch</kbd><span data-i18n="hint.scroll">zoom</span></span>
+      <span class="mouse-only"><kbd>R</kbd><span data-i18n="hint.reseed">reseed</span></span>
+      <span class="mouse-only"><kbd>H</kbd><span data-i18n="hint.cinematic">cinematic</span></span>
     </div>
+
+    <!-- Phone / tablet layout only: one tab per group of controls. -->
+    <nav id="tabs" class="tabs" aria-label="Sections" data-i18n-aria="aria.tabs"></nav>
   </div>
 
-  <button id="hud-toggle" type="button" title="Toggle interface (H)" data-i18n-title="toggle.title"><kbd>H</kbd><span>Hide HUD</span></button>
+  <button id="hud-toggle" type="button" title="Toggle interface (H)" data-i18n-title="toggle.title">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.3"/></svg>
+    <kbd>H</kbd><span class="label">Hide HUD</span>
+  </button>
 
   <div id="boot" role="status">
     <div class="boot-box">

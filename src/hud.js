@@ -14,9 +14,10 @@ const el = (tag, className, text) => {
 // Declarative description of the right-hand panel. "title", "hint" and
 // "label" are dictionary keys; a hint without a dot is shown as is (a hotkey).
 const SECTIONS = [
-  { title: 'section.seed', hint: 'R', kind: 'seed' },
+  { title: 'section.seed', hint: 'R', kind: 'seed', tab: 'worlds' },
   {
     title: 'section.surface',
+    tab: 'surface',
     hint: 'section.surfaceHint',
     params: [
       { key: 'seaLevel', min: 0, max: 1, step: 0.005, format: 'unit' },
@@ -27,6 +28,7 @@ const SECTIONS = [
   },
   {
     title: 'section.atmosphere',
+    tab: 'sky',
     hint: 'section.atmosphereHint',
     params: [
       { key: 'cloudCover', min: 0, max: 1, step: 0.005, format: 'unit' },
@@ -36,12 +38,14 @@ const SECTIONS = [
   },
   {
     title: 'section.rings',
+    tab: 'sky',
     hint: 'section.ringsHint',
     kind: 'rings',
     params: [{ key: 'ringTilt', min: -60, max: 60, step: 0.5, format: 'signedDeg' }],
   },
   {
     title: 'section.orbit',
+    tab: 'view',
     hint: 'section.orbitHint',
     params: [
       { key: 'sunAngle', min: 0, max: 360, step: 1, format: 'deg' },
@@ -50,12 +54,23 @@ const SECTIONS = [
   },
   {
     title: 'section.render',
+    tab: 'system',
     hint: 'section.renderHint',
     params: [{ key: 'renderScale', min: 0.5, max: 1.5, step: 0.05, format: 'scale' }],
   },
 ];
 
-const TELEMETRY = ['fps', 'ms', 'gpu', 'res', 'alt', 'phase', 'lod'];
+// Tabs of the compact (phone / tablet) layout. The icons are 20 × 20 line
+// drawings in the HUD's own hairline style.
+const TABS = [
+  { id: 'worlds', icon: '<circle cx="10" cy="10" r="4.4"/><ellipse cx="10" cy="10" rx="8.6" ry="2.5" transform="rotate(-20 10 10)"/>' },
+  { id: 'surface', icon: '<path d="M2 15.5 7.5 6l3.5 5.5 2.2-3 4.8 7z"/>' },
+  { id: 'sky', icon: '<circle cx="10" cy="10" r="3.8"/><circle cx="10" cy="10" r="7.6" stroke-dasharray="2 2.4"/>' },
+  { id: 'view', icon: '<path d="M3 7V3.5h3.5M13.5 3.5H17V7M17 13v3.5h-3.5M6.5 16.5H3V13"/><circle cx="10" cy="10" r="2"/>' },
+  { id: 'system', icon: '<path d="M3 5.5h14M3 10h14M3 14.5h14"/><path d="M7 3.8v3.4M13 8.3v3.4M9 12.8v3.4" stroke-width="2.4"/>' },
+];
+
+const TELEMETRY = ['fps', 'ms', 'gpu', 'res', 'quality', 'alt', 'phase', 'lod'];
 
 /**
  * @param {object} opts
@@ -63,7 +78,7 @@ const TELEMETRY = ['fps', 'ms', 'gpu', 'res', 'alt', 'phase', 'lod'];
  * @param {Array}  opts.cameras   [{ id }]
  * @param {object} opts.i18n      text service from createI18n()
  * @param {object} opts.on        callbacks: preset(i), camera(id), param(key, value),
- *                                rings(bool), seed(text), randomize()
+ *                                rings(bool), seed(text), randomize(), layout()
  */
 export function createHud({ presets, cameras, i18n, on }) {
   const sliders = new Map();        // key -> { input, output, format }
@@ -107,31 +122,36 @@ export function createHud({ presets, cameras, i18n, on }) {
 
   // ---- language switch ---------------------------------------------------
   // Codes on the buttons, each language's own name in the tooltip.
-  const languageSwitch = document.getElementById('lang-switch');
-  LANGUAGES.forEach((language) => {
-    const button = el('button', 'btn compact', language.code);
+  const languageButton = (language, text) => {
+    const button = el('button', 'btn compact', text);
     button.type = 'button';
     button.lang = language.id;
     button.title = language.name;
     button.setAttribute('aria-label', language.name);
     button.addEventListener('click', () => i18n.set(language.id));
-    languageSwitch.append(button);
     languageButtons.push({ id: language.id, button });
-  });
-  paint(() => {
-    languageButtons.forEach(({ id, button }) => button.setAttribute('aria-pressed', String(id === i18n.language)));
-  });
+    return button;
+  };
+  const languageSwitch = document.getElementById('lang-switch');
+  LANGUAGES.forEach((language) => languageSwitch.append(languageButton(language, language.code)));
 
   // ---- left panel: identity ----------------------------------------------
   const nameNode = document.getElementById('planet-name');
   const blurbNode = document.getElementById('planet-class');
   const indexNode = document.getElementById('ident-index');
+  // The compact layout repeats the name in a strip at the top of the screen.
+  const topNameNode = document.getElementById('top-name');
+  const topIndexNode = document.getElementById('top-index');
   const paintIdentity = () => {
     const id = presets[activePreset].id;
-    nameNode.textContent = t(`preset.${id}.name`);
+    const name = t(`preset.${id}.name`);
+    nameNode.textContent = name;
+    topNameNode.textContent = name;
     blurbNode.textContent = t(`preset.${id}.blurb`);
-    const index = `${String(activePreset + 1).padStart(2, '0')} / ${String(presets.length).padStart(2, '0')}`;
-    indexNode.textContent = modified ? `${index} · ${t('ident.custom')}` : index;
+    let index = `${String(activePreset + 1).padStart(2, '0')} / ${String(presets.length).padStart(2, '0')}`;
+    if (modified) index += ` · ${t('ident.custom')}`;
+    indexNode.textContent = index;
+    topIndexNode.textContent = index;
   };
   paint(paintIdentity);
 
@@ -177,14 +197,18 @@ export function createHud({ presets, cameras, i18n, on }) {
   // ---- right panel: parameters -----------------------------------------
   const controls = document.getElementById('controls');
   SECTIONS.forEach((section, index) => {
-    const group = el('div', 'group');
-    if (index === 0) group.style.borderTop = '0';
+    const group = el('div', index === 0 ? 'group first' : 'group');
+    group.dataset.tab = section.tab;
     const title = el('div', 'group-title');
     const titleText = el('span');
     const hintText = el('span');
     label(titleText, section.title);
     if (section.hint.includes('.')) label(hintText, section.hint);
-    else hintText.textContent = section.hint;
+    else {
+      // A hotkey: hidden where there is no keyboard.
+      hintText.textContent = section.hint;
+      hintText.className = 'hotkey';
+    }
     title.append(titleText, hintText);
     group.append(title);
 
@@ -254,23 +278,80 @@ export function createHud({ presets, cameras, i18n, on }) {
   // Slider read-outs carry the decimal mark of the language.
   paint(() => sliders.forEach(paintSlider));
 
+  // ---- language, once more, for the compact layout ----------------------
+  // There the switch lives in the System tab and has room for full names.
+  {
+    const group = el('div', 'group group-language');
+    group.dataset.tab = 'system';
+    const title = el('div', 'group-title');
+    const titleText = el('span');
+    label(titleText, 'group.language');
+    title.append(titleText, el('span', '', LANGUAGES.map((language) => language.code).join(' · ')));
+    const wrap = el('div', 'switch three');
+    wrap.setAttribute('role', 'group');
+    paint(() => wrap.setAttribute('aria-label', t('aria.language')));
+    LANGUAGES.forEach((language) => wrap.append(languageButton(language, language.name)));
+    group.append(title, wrap);
+    controls.append(group);
+  }
+  paint(() => {
+    languageButtons.forEach(({ id, button }) => button.setAttribute('aria-pressed', String(id === i18n.language)));
+  });
+
+  // ---- tab bar (compact layout) -----------------------------------------
+  // One sheet, five tabs: the open tab is named in body[data-sheet] and the
+  // stylesheet shows the blocks tagged with it. Tapping the open tab closes
+  // the sheet again, which gives the whole screen back to the planet.
+  const tabBar = document.getElementById('tabs');
+  const tabButtons = new Map();
+  const notifyLayout = () => {
+    if (on.layout) on.layout();
+  };
+  const setSheet = (tab) => {
+    if (tab) document.body.dataset.sheet = tab;
+    else delete document.body.dataset.sheet;
+    tabButtons.forEach((button, id) => button.setAttribute('aria-expanded', String(id === tab)));
+    if (tab) document.getElementById('sheet').scrollTop = 0;
+    notifyLayout();
+  };
+  TABS.forEach(({ id, icon }) => {
+    const button = el('button', 'tab');
+    button.type = 'button';
+    button.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${icon}</svg>`;
+    const caption = el('span');
+    label(caption, `tab.${id}`);
+    button.append(caption);
+    button.setAttribute('aria-controls', 'sheet');
+    button.setAttribute('aria-expanded', 'false');
+    button.addEventListener('click', () => setSheet(document.body.dataset.sheet === id ? null : id));
+    tabBar.append(button);
+    tabButtons.set(id, button);
+  });
+
   // ---- cinematic toggle & keyboard -------------------------------------
   const toggle = document.getElementById('hud-toggle');
-  const toggleLabel = toggle.querySelector('span');
+  const toggleLabel = toggle.querySelector('.label');
   const isCinematic = () => document.body.classList.contains('cinematic');
   const paintToggle = () => {
-    toggleLabel.textContent = t(isCinematic() ? 'toggle.show' : 'toggle.hide');
+    const text = t(isCinematic() ? 'toggle.show' : 'toggle.hide');
+    toggleLabel.textContent = text;
+    toggle.setAttribute('aria-label', text);   // the compact layout shows an icon only
   };
   paint(paintToggle);
   const setCinematic = (hidden) => {
     document.body.classList.toggle('cinematic', hidden);
     toggle.setAttribute('aria-pressed', String(hidden));
     paintToggle();
+    notifyLayout();
   };
   toggle.addEventListener('click', () => setCinematic(!isCinematic()));
 
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Escape' && document.body.dataset.sheet) {
+      setSheet(null);
+      return;
+    }
     const target = e.target;
     if (target instanceof HTMLInputElement && target.type === 'text') return;
     // The typed character where it is a Latin letter or a digit; otherwise the

@@ -23,10 +23,6 @@ import {
 } from './shaders/bake.js';
 import { SKY_BAKE_FRAG } from './shaders/sky.js';
 
-const TERRAIN_SIZE = 1024;     // per cube face: about 1.5 mrad per texel
-const CLOUD_SIZE = 768;
-const SKY_SIZE = 512;
-const RING_SIZE = 2048;
 const CLOUD_PERIOD = 3.0;      // seconds between cloud snapshots
 
 // Relative GPU cost of the bake jobs, used to spread a world bake over frames.
@@ -75,7 +71,17 @@ function createAtmosphereLut() {
   return texture;
 }
 
-export function createBaker(renderer, uniforms) {
+/**
+ * @param {object} sizes  cache sizes from the quality tier (see quality.js):
+ *                        terrain / clouds / sky are cube-map faces, ring is a strip
+ */
+export function createBaker(renderer, uniforms, sizes) {
+  // At 1024 a terrain texel is about 1.5 mrad of the surface.
+  const TERRAIN_SIZE = sizes.terrain;
+  const CLOUD_SIZE = sizes.clouds;
+  const SKY_SIZE = sizes.sky;
+  const RING_SIZE = sizes.ring;
+
   // ---- one full-screen triangle, re-used by every pass ----
   const scene = new THREE.Scene();
   const camera = new THREE.Camera();

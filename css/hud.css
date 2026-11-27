@@ -14,6 +14,32 @@
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", "JetBrains Mono", "Roboto Mono",
     Consolas, "Liberation Mono", monospace;
   --pad: 16px;
+  --panel-w: 292px;
+
+  /* Notch / home-indicator insets (zero on ordinary screens). */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  /* Compact layout: tab bar (portrait) or rail (landscape) plus one sheet. */
+  --tab-h: 56px;
+  --rail-w: 76px;
+  --sheet-h: min(44vh, 360px);
+  --drawer-w: min(340px, 46vw);
+
+  /* The part of the screen the interface leaves free. #frame is stretched
+     over it and the camera frames the planet inside (see src/main.js). */
+  --free-top: 0px;
+  --free-right: calc(var(--panel-w) + var(--pad) * 2);
+  --free-bottom: 0px;
+  --free-left: calc(var(--panel-w) + var(--pad) * 2);
+}
+
+@supports (height: 1dvh) {
+  :root {
+    --sheet-h: min(44dvh, 360px);
+  }
 }
 
 *,
@@ -27,6 +53,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #000;
   color: var(--ink);
   font-family: var(--mono);
@@ -36,6 +63,9 @@ body {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1, "zero" 1;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #view {
@@ -53,6 +83,16 @@ body {
   cursor: grabbing;
 }
 
+#frame {
+  position: fixed;
+  top: var(--free-top);
+  right: var(--free-right);
+  bottom: var(--free-bottom);
+  left: var(--free-left);
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ---------- layout ------------------------------------------------------ */
 
 #hud {
@@ -61,6 +101,13 @@ body {
   pointer-events: none;
   opacity: 1;
   transition: opacity 0.4s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Transparent on a desktop: the panels position themselves. */
+#sheet {
+  display: contents;
 }
 
 body.cinematic #hud {
@@ -72,7 +119,7 @@ body.cinematic #hud {
 .panel {
   position: absolute;
   top: var(--pad);
-  width: 292px;
+  width: var(--panel-w);
   max-height: calc(100% - var(--pad) * 2);
   overflow-y: auto;
   pointer-events: auto;
@@ -143,6 +190,15 @@ body.cinematic #hud {
   border-top: 1px solid var(--line-soft);
 }
 
+.group.first {
+  border-top: 0;
+}
+
+/* The language block of the compact layout (the desktop has .lang). */
+.group-language {
+  display: none;
+}
+
 .group-title {
   margin-bottom: 11px;
 }
@@ -174,6 +230,7 @@ button {
   font: inherit;
   letter-spacing: inherit;
   color: inherit;
+  touch-action: manipulation;
 }
 
 .btn {
@@ -350,6 +407,8 @@ input[type="text"] {
   color: var(--ink);
   font: inherit;
   letter-spacing: 0.1em;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 input[type="text"]:hover {
@@ -376,6 +435,11 @@ input[type="text"]:hover {
 
 .switch .btn + .btn {
   border-left: 0;
+}
+
+.switch.three {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 0;
 }
 
 /* ---------- telemetry --------------------------------------------------- */
@@ -440,7 +504,7 @@ input[type="text"]:hover {
   justify-content: center;
   gap: 4px 18px;
   width: max-content;
-  max-width: calc(100% - (292px + var(--pad)) * 2 - 48px);
+  max-width: calc(100% - (var(--panel-w) + var(--pad)) * 2 - 48px);
   transform: translateX(-50%);
   color: var(--ink-faint);
   font-size: 9.5px;
@@ -452,6 +516,11 @@ input[type="text"]:hover {
 
 .hints > span {
   white-space: nowrap;
+}
+
+/* Mouse and keyboard hints by default; touch ones on a touch screen. */
+.hints > .touch-only {
+  display: none;
 }
 
 kbd {
@@ -484,6 +553,17 @@ kbd {
   white-space: nowrap;
   cursor: pointer;
   transition: opacity 0.4s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+#hud-toggle svg {
+  display: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 #hud-toggle kbd {
@@ -536,43 +616,438 @@ body.cinematic #hud-toggle:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* ---------- narrow screens ---------------------------------------------- */
+/* ---------- compact layout: shared parts -------------------------------- */
 
-@media (max-width: 860px) {
-  .panel {
-    width: calc(50% - var(--pad) * 1.25);
-    max-height: 46%;
-    top: auto;
-    bottom: 60px;
+/* Hidden on a desktop; the compact layout below switches them on. */
+.topbar,
+.tabs {
+  display: none;
+}
+
+.top-name {
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+  border-top: 2px solid transparent;
+  color: var(--ink-dim);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab[aria-expanded="true"] {
+  background: var(--fill);
+  border-color: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+}
+
+.tab:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  outline-offset: -3px;
+}
+
+/* ==========================================================================
+   Compact layout — phones and tablets (and any narrow or short window).
+
+   Portrait: the name of the world on top, a tab bar at the bottom, and one
+   sheet of fixed height that the tabs open. The two desktop panels dissolve
+   (display: contents) and their blocks flow into the sheet as a grid; only
+   the blocks of the open tab are shown.
+   ========================================================================== */
+
+@media (max-width: 1100px), (max-height: 520px) {
+  :root {
+    --free-top: calc(var(--safe-t) + 58px);
+    --free-right: var(--safe-r);
+    --free-bottom: calc(var(--safe-b) + var(--tab-h));
+    --free-left: var(--safe-l);
   }
 
-  .ident h1 {
-    font-size: 16px;
+  body[data-sheet] {
+    --free-bottom: calc(var(--safe-b) + var(--tab-h) + var(--sheet-h));
   }
 
+  .lang,
   .hints {
+    display: none;
+  }
+
+  /* ---- name strip ---- */
+  .topbar {
+    position: absolute;
+    top: calc(var(--safe-t) + 12px);
+    left: calc(var(--safe-l) + var(--pad));
+    right: calc(var(--safe-r) + var(--pad) + 52px);
+    display: block;
+    text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
+  }
+
+  .topbar .kicker {
+    justify-content: flex-start;
+  }
+
+  /* ---- hide / show button: an icon in the top right corner ---- */
+  #hud-toggle {
+    top: calc(var(--safe-t) + 10px);
+    right: calc(var(--safe-r) + 12px);
+    bottom: auto;
+    left: auto;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    transform: none;
+    background: rgba(10, 12, 16, 0.72);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  #hud-toggle svg {
+    display: block;
+  }
+
+  #hud-toggle kbd,
+  #hud-toggle .label {
+    display: none;
+  }
+
+  body.cinematic #hud-toggle {
+    opacity: 0.45;
+  }
+
+  /* ---- tab bar ---- */
+  .tabs {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 128px));
+    justify-content: center;
+    height: calc(var(--tab-h) + var(--safe-b));
+    padding: 0 var(--safe-r) var(--safe-b) var(--safe-l);
+    pointer-events: auto;
+    touch-action: none;
+    background: rgba(10, 12, 16, 0.94);
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- the sheet ---- */
+  #sheet {
+    position: absolute;
+    right: 0;
+    bottom: calc(var(--tab-h) + var(--safe-b));
+    left: 0;
+    display: grid;
+    /* One column on a phone, two or three on a tablet. */
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+    align-content: start;
+    height: var(--sheet-h);
+    padding: 2px var(--safe-r) 10px var(--safe-l);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
+    touch-action: pan-y;
+    background: rgba(10, 12, 16, 0.94);
+    border-top: 1px solid var(--line);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+    /* Closed: parked below the screen and out of the tab order. */
+    visibility: hidden;
+    transform: translateY(calc(100% + var(--tab-h) + var(--safe-b)));
+    transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0s linear 0.28s;
+  }
+
+  body[data-sheet] #sheet {
+    visibility: visible;
+    transform: none;
+    transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .panel {
+    display: contents;
+  }
+
+  /* A block alone in its row does not stretch across a whole tablet. */
+  .group {
+    justify-self: center;
+    width: 100%;
+    max-width: 460px;
+    padding: 14px 16px 10px;
+    border-top: 0;
+  }
+
+  .group-language {
+    display: block;
+  }
+
+  /* Read-outs last: the controls of the System tab come first. */
+  .group-telemetry {
+    order: 3;
+  }
+
+  /* The name is already in the strip on top; the sheet keeps the description. */
+  .ident {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 100%;
+    max-width: 920px;
+    padding: 14px 16px 0;
+  }
+
+  .ident .kicker,
+  .ident h1 {
+    display: none;
+  }
+
+  .ident p {
+    font-size: inherit;
+  }
+
+  /* Only the blocks of the open tab. */
+  body[data-sheet="worlds"] #sheet [data-tab]:not([data-tab="worlds"]),
+  body[data-sheet="surface"] #sheet [data-tab]:not([data-tab="surface"]),
+  body[data-sheet="sky"] #sheet [data-tab]:not([data-tab="sky"]),
+  body[data-sheet="view"] #sheet [data-tab]:not([data-tab="view"]),
+  body[data-sheet="system"] #sheet [data-tab]:not([data-tab="system"]) {
     display: none;
   }
 }
 
-@media (max-width: 560px) {
-  .panel-left {
+/* ==========================================================================
+   Compact layout, landscape — a phone on its side, a small tablet.
+
+   Height is the scarce dimension here, so the tabs become a rail on the
+   right edge (under the thumb) and the sheet a drawer beside it.
+   ========================================================================== */
+
+@media (max-width: 1100px) and (orientation: landscape), (max-height: 520px) and (orientation: landscape) {
+  :root {
+    --free-top: calc(var(--safe-t) + 20px);
+    --free-right: calc(var(--safe-r) + var(--rail-w));
+    --free-bottom: var(--safe-b);
+  }
+
+  body[data-sheet] {
+    --free-right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w));
+    --free-bottom: var(--safe-b);
+  }
+
+  .topbar {
+    right: calc(var(--safe-r) + var(--rail-w) + var(--pad));
+  }
+
+  body[data-sheet] .topbar {
+    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + var(--pad));
+  }
+
+  /* The button sits in the head of the rail. */
+  #hud-toggle {
+    right: calc(var(--safe-r) + (var(--rail-w) - 40px) / 2);
+  }
+
+  .tabs {
+    top: 0;
+    left: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(5, minmax(44px, 80px));
+    align-content: start;
+    justify-content: stretch;
+    width: calc(var(--rail-w) + var(--safe-r));
+    height: auto;
+    padding: calc(var(--safe-t) + 60px) var(--safe-r) var(--safe-b) 0;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+
+  .tab {
+    border-top: 0;
+    border-left: 2px solid transparent;
+  }
+
+  #sheet {
+    top: 0;
+    right: calc(var(--rail-w) + var(--safe-r));
+    bottom: 0;
+    left: auto;
+    /* minmax(0, ...): the drawer sets the width, never its content. */
+    grid-template-columns: minmax(0, 1fr);
+    width: var(--drawer-w);
+    height: auto;
+    padding: var(--safe-t) 0 calc(var(--safe-b) + 10px);
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    transform: translateX(calc(100% + var(--rail-w) + var(--safe-r)));
+  }
+}
+
+/* ==========================================================================
+   Touch screens, in any layout: targets a finger can hit.
+   ========================================================================== */
+
+@media (pointer: coarse) {
+  html,
+  body {
+    font-size: 12px;
+  }
+
+  /* A blur over a full-screen WebGL canvas is re-done by the compositor on
+     every frame; on a mobile GPU that costs more than the planet itself. */
+  .panel,
+  .lang,
+  #hud-toggle {
+    background: rgba(10, 12, 16, 0.9);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .btn {
+    min-height: 42px;
+    padding: 8px 12px;
+  }
+
+  .btn.compact {
+    padding: 8px 6px;
+    font-size: 10.5px;
+  }
+
+  .lang .btn {
+    min-height: 38px;
+    padding: 6px 14px;
+  }
+
+  .kicker,
+  .group-title,
+  .btn .idx,
+  .btn .tag {
+    font-size: 10px;
+  }
+
+  .param {
+    margin-bottom: 4px;
+  }
+
+  .param label,
+  .telemetry dt {
+    font-size: 10.5px;
+  }
+
+  /* Tall enough to grab; a vertical swipe that starts on a slider still
+     scrolls the sheet. */
+  input[type="range"] {
+    height: 34px;
+    touch-action: pan-y;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 12px;
+    height: 24px;
+    margin-top: -11px;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 24px;
+  }
+
+  /* 16 px: anything smaller makes iOS zoom the page when the field is focused. */
+  input[type="text"] {
+    height: 42px;
+    font-size: 16px;
+    letter-spacing: 0.06em;
+  }
+
+  .telemetry {
+    row-gap: 7px;
+  }
+
+  .tab {
+    font-size: 9px;
+  }
+
+  /* No keyboard, so no hotkeys to advertise. */
+  .hotkey,
+  #hud-toggle kbd,
+  .hints > .mouse-only {
     display: none;
   }
 
-  .panel-right {
-    left: var(--pad);
-    right: var(--pad);
-    width: auto;
-    max-height: 38%;
+  .hints > .touch-only {
+    display: inline;
   }
+}
+
+/* The smallest phones: five tab labels still have to fit side by side, and
+   a narrow drawer has no room for the class tag next to a name. */
+@media (max-width: 359px) {
+  .tab {
+    font-size: 8px;
+    letter-spacing: 0.02em;
+  }
+}
+
+@media (max-width: 640px) and (orientation: landscape) {
+  .btn .tag {
+    display: none;
+  }
+}
+
+/* Cinematic mode hides the interface, so the whole screen is free.
+   (Last on purpose: it has to win over every layout above.) */
+body.cinematic {
+  --free-top: 0px;
+  --free-right: 0px;
+  --free-bottom: 0px;
+  --free-left: 0px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   #hud,
   #hud-toggle,
+  #sheet,
+  body[data-sheet] #sheet,
   #boot,
-  .btn {
+  .btn,
+  .tab {
     transition: none;
   }
 }

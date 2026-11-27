@@ -14,10 +14,13 @@ import { CameraRig } from './camera.js';
 import { createHud } from './hud.js';
 import { createI18n } from './i18n.js';
 import { createBaker } from './bake.js';
+import { pickQuality } from './quality.js';
 
 const EXPOSURE = 1.05;
-const MAX_DEVICE_PIXEL_RATIO = 1.5;
-const FOV = 40;
+const FOV = 40;                   // vertical field of view the scene is composed for
+// The composed field must fit the free part of the screen in both directions:
+// its height, and this many times its width (the planet with a margin).
+const FIELD_ASPECT = 1.16;
 const BAKE_BUDGET = 6;            // bake work per frame while the screen is dark
 const MIN_AUTO_SCALE = 0.5;
 const GPU_SHARE = 0.8;            // part of a refresh interval the scene may spend on the GPU
@@ -62,6 +65,14 @@ function start() {
   renderer.toneMappingExposure = EXPOSURE;
   renderer.setClearColor(0x000000, 1);
 
+  // The scene and every cache are floating-point targets.
+  const gl = renderer.getContext();
+  if (!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float')) {
+    fail(i18n.t('boot.floatTargets'));
+    return;
+  }
+  const quality = pickQuality(renderer.capabilities.maxCubemapSize);
+
   renderer.debug.onShaderError = (gl, program, vs, fs) => {
     const log = [gl.getProgramInfoLog(program), gl.getShaderInfoLog(vs), gl.getShaderInfoLog(fs)]
       .filter(Boolean)
@@ -72,7 +83,7 @@ function start() {
 
   const uniforms = createUniforms();
   const state = new PlanetState(uniforms);
-  const baker = createBaker(renderer, uniforms);
+  const baker = createBaker(renderer, uniforms, quality);
   const world = createWorld(uniforms);
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 200);
@@ -96,18 +107,86 @@ function start() {
 
   let renderScale = 1.0;      // chosen by the user (upper bound)
   let autoScale = 1.0;        // chosen by the governor to hold the frame rate
+  let viewWidth = 1;
+  let viewHeight = 1;
+
+  // ------------------------------------------------------------------
+  // Framing: keep the planet inside the part of the screen the interface
+  // leaves free
+  // ------------------------------------------------------------------
+  // The stylesheet knows the layout, so it stretches an invisible element,
+  // #frame, over the free area (between the panels on a desktop, above the
+  // sheet on a phone...). Two things follow that rectangle:
+  //   - the picture is shifted so that the planet sits in its centre. This is
+  //     a lens shift (a view offset), not a turn of the camera: the camera
+  //     keeps looking straight at the planet, so the disc stays a circle;
+  //   - the field of view opens up until the field the scene was composed for
+  //     fits the rectangle, in height and in width.
+  const FIELD = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+  const frameNode = document.getElementById('frame');
+  const framing = {
+    x: 0, y: 0, span: 1,            // shown now: centre offset and field height, CSS px
+    toX: 0, toY: 0, toSpan: 1,      // where the layout wants them
+    snap: true,
+  };
+  function measureFraming() {
+    const rect = frameNode.getBoundingClientRect();
+    const width = Math.max(rect.width, 1);
+    const height = Math.max(rect.height, 1);
+    framing.toX = rect.left + rect.width / 2 - viewWidth / 2;
+    framing.toY = rect.top + rect.height / 2 - viewHeight / 2;
+    // Never open the lens beyond ~100 degrees, however little room is left.
+    framing.toSpan = Math.max(Math.min(height, width * FIELD_ASPECT), viewHeight * 0.3);
+  }
+  function applyFraming() {
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((FIELD * viewHeight) / framing.span));
+    camera.aspect = viewWidth / viewHeight;
+    camera.setViewOffset(viewWidth, viewHeight, -framing.x, -framing.y, viewWidth, viewHeight);
+  }
+  function updateFraming(dt) {
+    const dx = framing.toX - framing.x;
+    const dy = framing.toY - framing.y;
+    const ds = framing.toSpan - framing.span;
+    if (!framing.snap && dx === 0 && dy === 0 && ds === 0) return;
+    if (framing.snap || (Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25 && Math.abs(ds) < 0.25)) {
+      framing.x = framing.toX;
+      framing.y = framing.toY;
+      framing.span = framing.toSpan;
+      framing.snap = false;
+    } else {
+      // Glide after the sheet as it opens and closes.
+      const k = 1 - Math.exp(-dt * 10);
+      framing.x += dx * k;
+      framing.y += dy * k;
+      framing.span += ds * k;
+    }
+    applyFraming();
+  }
+
   function resize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO) * renderScale * autoScale;
+    viewWidth = Math.max(canvas.clientWidth || window.innerWidth, 1);
+    viewHeight = Math.max(canvas.clientHeight || window.innerHeight, 1);
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, quality.pixelRatio) * renderScale * autoScale;
     renderer.setPixelRatio(pixelRatio);
-    renderer.setSize(width, height, false);
+    renderer.setSize(viewWidth, viewHeight, false);
     composer.setPixelRatio(pixelRatio);
-    composer.setSize(width, height);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
+    composer.setSize(viewWidth, viewHeight);
+    // A new window size is not animated: the picture is simply laid out again.
+    measureFraming();
+    framing.snap = true;
+    updateFraming(0);
   }
   window.addEventListener('resize', resize);
+  // Catches what a resize event does not: a rotated phone settling, the
+  // browser's bars sliding away, a sheet opening.
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(() => {
+      if (canvas.clientWidth !== viewWidth || canvas.clientHeight !== viewHeight) resize();
+      else measureFraming();
+    });
+    observer.observe(canvas);
+    observer.observe(frameNode);
+  }
 
   // ------------------------------------------------------------------
   // Camera viewpoints (defined relative to the sun and the ring plane)
@@ -164,7 +243,6 @@ function start() {
   // which a timer query reports exactly. Frame intervals are only the
   // fallback: they also grow when the browser throttles a window nobody is
   // looking at, which says nothing about the GPU.
-  const gl = renderer.getContext();
   const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   const gpu = { active: null, pending: [], sum: 0, count: 0, ms: 0 };
   canvas.addEventListener('webglcontextlost', () => {
@@ -355,6 +433,8 @@ function start() {
         hud.setModified(true);
         dipTransition(() => state.setSeed(seed), 0.36);
       },
+      // A sheet opened or closed, or the interface was hidden.
+      layout: measureFraming,
     },
   });
 
@@ -377,9 +457,8 @@ function start() {
   // ------------------------------------------------------------------
   // Frame loop
   // ------------------------------------------------------------------
-  const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
   // Finite-difference step: a little over one texel of the terrain cache.
-  const TERRAIN_STEP = 0.0024;
+  const TERRAIN_STEP = (0.0024 * 1024) / quality.terrain;
   // Wavelengths of the micro-relief octaves (must match the surface shader).
   const DETAIL_WAVELENGTHS = [0, 1, 2].map((i) => 1 / (200 * Math.pow(2.03, i)));
   let last = performance.now();
@@ -425,6 +504,7 @@ function start() {
 
     state.update(dt);
     rig.update(dt);
+    updateFraming(dt);
     uniforms.uTime.value = time;
     if (cachesLost) {
       cachesLost = false;
@@ -454,6 +534,7 @@ function start() {
     // camera. The terrain cache covers the view from orbit; as the camera
     // closes in, micro-relief octaves fade in once each is a few pixels wide.
     const dist = camera.position.length();
+    const tanHalfFov = (FIELD * viewHeight) / framing.span;   // the live field of view
     const pixel = (2 * tanHalfFov * (dist - 1)) / renderer.domElement.height;
     uniforms.uEps.value = Math.max(TERRAIN_STEP, pixel * 1.2);
     let detailOctaves = 0;
@@ -485,6 +566,7 @@ function start() {
         ms: `${i18n.number(1000 / fps, 1).padStart(5, ' ')} ${i18n.t('unit.ms')}`,
         gpu: gpu.ms > 0 ? `${i18n.number(gpu.ms, 1).padStart(5, ' ')} ${i18n.t('unit.ms')}` : '—',
         res: `${renderer.domElement.width} × ${renderer.domElement.height}`,
+        quality: i18n.t(`quality.${quality.id}`),
         alt: `${i18n.number(dist - 1, 2)} ${i18n.t('unit.radius')}`,
         phase: `${phase.toFixed(0).padStart(3, '0')}°`,
         lod: i18n.t('value.lod', { n: i18n.number(detailOctaves, 1) }),
@@ -516,7 +598,7 @@ function start() {
       if (governor.locked) setAutoScale(scale);
     },
   };
-  window.planetGenerator = { renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n };
+  window.planetGenerator = { renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing };
 }
 
 /**
