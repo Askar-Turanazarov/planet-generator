@@ -205,6 +205,17 @@ export function createBaker(renderer, uniforms, sizes) {
       return queue.length > 0;
     },
 
+    /** Every bake shader on a mesh of its own, for compiling them ahead of use. */
+    compileScene() {
+      const all = new THREE.Scene();
+      for (const material of Object.values(materials)) {
+        const mesh = new THREE.Mesh(triangle, material);
+        mesh.frustumCulled = false;
+        all.add(mesh);
+      }
+      return all;
+    },
+
     /** Synthesised once: the galactic dust band behind the stars. */
     bakeSky() {
       for (let face = 0; face < 6; face++) draw(sky, materials.sky, face, SKY_SIZE);

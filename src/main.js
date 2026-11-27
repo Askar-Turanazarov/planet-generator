@@ -44,7 +44,7 @@ function fail(message) {
   bootMessage.textContent = message;
 }
 
-function start() {
+async function start() {
   const canvas = document.getElementById('view');
 
   // ------------------------------------------------------------------
@@ -294,8 +294,10 @@ function start() {
   }
   function govern(dt) {
     gpuCollect();
-    // Ignore frames that say nothing about the GPU (tab in background, bakes).
-    if (dt >= 0.1 || dt <= 0 || document.hidden || dip) return;
+    // Ignore frames that say nothing about the GPU: the tab in the background,
+    // bakes, and pauses of a second or more (the page was frozen or stopped
+    // in a debugger). Slow frames short of that are exactly what this is for.
+    if (dt >= 1 || dt <= 0 || document.hidden || dip) return;
     governor.time += dt;
     governor.intervals.push(dt);
     if (governor.time < 0.5) return;
@@ -311,8 +313,9 @@ function start() {
     if (seen < governor.refresh * 0.97) {
       governor.refresh = seen;
       governor.slowerFor = 0;
-    } else if (seen > governor.refresh * 1.03 && timerExt && ++governor.slowerFor >= 20) {
+    } else if (seen > governor.refresh * 1.03 && seen < 1 / 28 && timerExt && ++governor.slowerFor >= 20) {
       // A slower display for ten seconds running: the window moved screens.
+      // (No display refreshes below 30 Hz: slower frames are the GPU's own.)
       governor.refresh = seen;
       governor.slowerFor = 0;
     } else if (seen <= governor.refresh * 1.03) {
@@ -351,17 +354,29 @@ function start() {
         governor.halfRate = false;
       }
     } else {
-      // No timer: judge by the frame interval, and only while the window has
-      // the user's attention (an unfocused window may simply be throttled).
+      // No timer (Safari, most phones): judge by the frame interval, and only
+      // while the window has the user's attention (an unfocused window may
+      // simply be throttled). Cost is taken to follow the pixel count, as
+      // above, so a heavy overload is answered in one step instead of many
+      // small ones; the interval is rounded up to whole refreshes, which makes
+      // the estimate err towards fewer pixels, and the raise path corrects it.
+      // The median interval: one hitch (garbage collection, a cloud snapshot
+      // swap) must not read as a slow GPU.
       const target = governor.refresh > 1 / 100 ? governor.refresh : governor.refresh * 2;
-      const load = frameTime / target;
+      const load = sorted[Math.floor(sorted.length / 2)] / target;
       if (load > 1.2 && !document.hasFocus()) return;
-      ideal = load > 1.2 ? autoScale * 0.88 : load < 1.06 ? autoScale * 1.12 : autoScale;
+      // With headroom, probe one step up (at least +0.1, so that the raise
+      // below, which wants more than +0.07, also happens from low scales).
+      ideal = load > 1.2 ? autoScale * Math.min(Math.sqrt(1.05 / load), 0.88)
+        : load < 1.06 ? Math.max(autoScale * 1.15, autoScale + 0.1) : autoScale;
     }
 
     if (ideal < autoScale - 0.01) {
       governor.under = 0;
-      if (++governor.over >= 2) {
+      // One window is enough when the frame is far over budget (under ~2/3 of
+      // the target rate); a mild overload has to show up twice in a row.
+      const severe = ideal < autoScale * 0.8;
+      if (++governor.over >= (severe ? 1 : 2)) {
         // Dropping right after a raise means the raise was a mistake: wait longer next time.
         if (governor.sinceRaise <= 6) governor.patience = Math.min(governor.patience * 2, 64);
         governor.over = 0;
@@ -438,6 +453,14 @@ function start() {
     },
   });
 
+  // Compile the shaders before the first bake and the first frame, and wait
+  // for them without blocking the page (see precompile below).
+  await precompile(renderer, hdrTarget, camera, [
+    world.scene,
+    baker.compileScene(),
+    passScene([bloom.materialHighPassFilter, ...bloom.separableBlurMaterials, bloom.compositeMaterial]),
+  ]);
+
   // Initial world.
   state.applyPreset(PRESETS[0]);
   hud.setPreset(0);
@@ -468,7 +491,10 @@ function start() {
   let firstFrame = true;
 
   function frame(now) {
-    const dt = THREE.MathUtils.clamp((now - last) / 1000, 0, 0.1);
+    // The simulation never steps more than 0.1 s at once; the governor gets
+    // the real interval, so that it also sees a device running below 10 fps.
+    const interval = Math.max((now - last) / 1000, 0);
+    const dt = Math.min(interval, 0.1);
     last = Math.max(last, now);
     time += dt;
 
@@ -547,7 +573,8 @@ function start() {
 
     if (rendering) composer.render(dt);
     gpuEnd();
-    govern(dt);
+    // A frame that waited on a bake says nothing about the steady load.
+    govern(rendering ? interval : 0);
 
     if (firstFrame) {
       firstFrame = false;
@@ -602,6 +629,36 @@ function start() {
 }
 
 /**
+ * Shader compilation ahead of use. Drawn cold, a material compiles its shader
+ * there and then, and the page freezes until the driver is done: on a phone
+ * the large planet and bake shaders can take seconds. compileAsync hands the
+ * work to the browser first; where it supports KHR_parallel_shader_compile
+ * the drivers compile in the background while the page keeps running, and
+ * the promise settles once every program is ready. Elsewhere it settles at
+ * once and the first draw compiles, as before.
+ *
+ * A program depends on the target it draws into (tone mapping and colour
+ * space are only applied on screen), so it is compiled for a render target,
+ * which is where the scene, the bakes and the bloom all draw.
+ */
+async function precompile(renderer, target, camera, scenes) {
+  const previous = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  // compileAsync creates the programs synchronously; only the wait is async.
+  const ready = scenes.map((scene) => renderer.compileAsync(scene, camera));
+  renderer.setRenderTarget(previous);
+  await Promise.all(ready);
+}
+
+/** A scene holding one full-screen mesh per material (for precompile). */
+function passScene(materials) {
+  const scene = new THREE.Scene();
+  const plane = new THREE.PlaneGeometry(2, 2);
+  for (const material of materials) scene.add(new THREE.Mesh(plane, material));
+  return scene;
+}
+
+/**
  * UnrealBloomPass ends by adding its glow onto the scene with a full-screen
  * pass, and OutputPass then reads the sum in another one. This folds the two:
  * the bloom pass stops after building the glow, and the output pass samples
@@ -640,9 +697,7 @@ function mergeBloomIntoOutput(bloom, output) {
   };
 }
 
-try {
-  start();
-} catch (error) {
+start().catch((error) => {
   console.error(error);
   fail(`${i18n.t('boot.startFailed')}\n${error && error.message ? error.message : error}\n\n${i18n.t('boot.webgl2')}`);
-}
+});
