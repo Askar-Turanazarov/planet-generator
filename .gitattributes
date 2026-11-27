@@ -1,3 +1,5 @@
 # One line-ending convention on every machine.
 * text=auto eol=lf
 *.png binary
+# Third-party code: left out of diffs and of GitHub's language statistics.
+vendor/** linguist-vendored -diff

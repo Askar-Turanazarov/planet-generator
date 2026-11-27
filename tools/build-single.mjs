@@ -1,27 +1,31 @@
 // Zero-dependency bundler: folds index.html + css + every local ES module into
-// one self-contained page. Three.js keeps coming from the CDN through the
-// import map, exactly as in the multi-file version.
+// one page. Three.js comes from vendor/ (see tools/vendor-three.mjs).
 // Usage: node tools/build-single.mjs
 //
 // Output, all in dist/ (the folder a static host such as Vercel serves):
-//   index.html             the site's entry page
-//   planet-generator.html  the same page under a name worth keeping: it also
-//                          runs on its own, opened straight from the disk
+//   index.html             the site's entry page; it loads Three.js from
+//                          vendor/ through the import map, as separate files a
+//                          browser keeps in its cache from one release to the next
+//   planet-generator.html  the same page with Three.js inside it as well: one
+//                          file that runs on its own, opened straight from the
+//                          disk, with no network at all
+//   vendor/                Three.js for index.html
 //   manifest.webmanifest, icons/   what "Add to Home Screen" needs
 //
 // It is deliberately simple: local modules are concatenated in dependency
 // order inside a single <script type="module">. That works because the source
 // follows two rules, which the build verifies: named exports only, and no two
 // modules declare the same top-level name.
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENTRY_HTML = join(ROOT, 'index.html');
 const DIST = join(ROOT, 'dist');
-const PAGES = ['index.html', 'planet-generator.html'];
-const STATIC = ['manifest.webmanifest', 'icons'];
+const SITE_PAGE = 'index.html';
+const STANDALONE_PAGE = 'planet-generator.html';
+const STATIC = ['manifest.webmanifest', 'icons', 'vendor'];
 
 const IMPORT = /^import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"];?[ \t]*\r?\n/gm;
 const DECLARATION = /^(?:export\s+)?(?:async\s+)?(?:const|let|var|function\*?|class)\s+([A-Za-z_$][\w$]*)/gm;
@@ -59,6 +63,67 @@ function checkUniqueNames(modules) {
       owner.set(name, file);
     }
   }
+}
+
+async function listFiles(dir) {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await listFiles(path)));
+    else if (entry.name.endsWith('.js')) out.push(path);
+  }
+  return out.sort();
+}
+
+/**
+ * The standalone page: every module the import map names travels inside the
+ * page as text. A small script turns each into a blob: URL and installs an
+ * import map of those before the application module is parsed, so the
+ * application code stays exactly as in the site page.
+ */
+async function selfContained(html) {
+  const mapTag = /<script type="importmap">\s*([\s\S]*?)\s*<\/script>/;
+  const found = html.match(mapTag);
+  if (!found) throw new Error('index.html: import map not found');
+  const { imports } = JSON.parse(found[1]);
+
+  // Module specifier -> source file. A key ending in "/" maps a folder.
+  const modules = [];
+  for (const [key, path] of Object.entries(imports)) {
+    if (/^[a-z]+:/i.test(path)) throw new Error(`Import map entry "${key}" is not a local file: ${path}`);
+    const file = join(ROOT, path);
+    if (!key.endsWith('/')) modules.push({ key, file });
+    else for (const inner of await listFiles(file)) modules.push({ key: key + relative(file, inner).replace(/\\/g, '/'), file: inner });
+  }
+
+  const blocks = [];
+  for (const { key, file } of modules) {
+    // A blob: module has no folder of its own: relative imports become the
+    // full specifiers they stand for, which the generated import map lists.
+    const code = (await readFile(file, 'utf8'))
+      .replace(/\r\n/g, '\n')
+      .replace(/((?:from|import)\s*['"])(\.{1,2}\/[^'"]+)(['"])/g,
+        (_, open, specifier, close) => open + posix.normalize(posix.join(posix.dirname(key), specifier)) + close);
+    if (/<\/script|<!--/i.test(code)) throw new Error(`${rel(file)} contains "</script" or "<!--", which cannot be inlined`);
+    blocks.push(`<script type="text/plain" data-module="${key}">${code}</script>`);
+  }
+  const loader = `<script>
+  // Turns the modules above into blob: URLs and maps their specifiers to them.
+  (() => {
+    const imports = {};
+    for (const node of document.querySelectorAll('script[type="text/plain"][data-module]')) {
+      imports[node.dataset.module] = URL.createObjectURL(new Blob([node.textContent], { type: 'text/javascript' }));
+    }
+    const map = document.createElement('script');
+    map.type = 'importmap';
+    map.textContent = JSON.stringify({ imports });
+    document.currentScript.after(map);
+  })();
+  </script>`;
+
+  return html
+    .replace(/[ \t]*<link rel="modulepreload"[^>]*>\n?/g, '')
+    .replace(mapTag, () => `${blocks.join('\n  ')}\n  ${loader}`);
 }
 
 async function build() {
@@ -99,10 +164,10 @@ async function build() {
   // Start from an empty folder, so nothing stale is ever published.
   await rm(DIST, { recursive: true, force: true });
   await mkdir(DIST, { recursive: true });
-  const size = `${(Buffer.byteLength(html) / 1024).toFixed(1)} kB`;
-  for (const page of PAGES) {
-    await writeFile(join(DIST, page), html);
-    console.log(`dist/${page}  ${size}`);
+  const pages = [[SITE_PAGE, html], [STANDALONE_PAGE, await selfContained(html)]];
+  for (const [page, content] of pages) {
+    await writeFile(join(DIST, page), content);
+    console.log(`dist/${page}  ${(Buffer.byteLength(content) / 1024).toFixed(1)} kB`);
   }
   for (const name of STATIC) {
     await cp(join(ROOT, name), join(DIST, name), { recursive: true });

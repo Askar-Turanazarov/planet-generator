@@ -20,15 +20,18 @@
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/hud.css">
-  <!-- Three.js r170 as ES modules; everything else is generated in real time. -->
+  <!-- Three.js r170 as ES modules, kept in the project (tools/vendor-three.mjs
+       writes vendor/ and these paths); everything else is generated in real time. -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      "three": "./vendor/three-0.170.0/three.module.min.js",
+      "three/addons/": "./vendor/three-0.170.0/addons/"
     }
   }
   </script>
+  <!-- Start fetching the engine while the page is still being parsed. -->
+  <link rel="modulepreload" href="./vendor/three-0.170.0/three.module.min.js">
 </head>
 <body>
   <canvas id="view" tabindex="-1" aria-label="Procedural planet viewport" data-i18n-aria="aria.viewport"></canvas>
