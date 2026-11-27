@@ -1,12 +1,18 @@
 // Minimal zero-dependency static file server for local development.
-// Usage: node tools/serve.mjs [port]
+// Usage: node tools/serve.mjs [port] [folder]
+//   node tools/serve.mjs            the source tree on port 5173
+//   node tools/serve.mjs 4173 dist  the built site, as a host would serve it
+// It listens on every network interface, so a phone or tablet on the same
+// Wi-Fi can open it by the computer's address (printed at start-up).
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const PROJECT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
+const ROOT = resolve(PROJECT, process.argv[3] || '.');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -14,6 +20,7 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -41,4 +48,11 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, () => {
   console.log(`Planet Generator 3D → http://localhost:${PORT}`);
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.family === 'IPv4' && !address.internal) {
+        console.log(`  on this network     → http://${address.address}:${PORT}`);
+      }
+    }
+  }
 });

@@ -1,19 +1,27 @@
 // Zero-dependency bundler: folds index.html + css + every local ES module into
-// one self-contained file, dist/planet-generator.html. Three.js keeps coming
-// from the CDN through the import map, exactly as in the multi-file version.
+// one self-contained page. Three.js keeps coming from the CDN through the
+// import map, exactly as in the multi-file version.
 // Usage: node tools/build-single.mjs
+//
+// Output, all in dist/ (the folder a static host such as Vercel serves):
+//   index.html             the site's entry page
+//   planet-generator.html  the same page under a name worth keeping: it also
+//                          runs on its own, opened straight from the disk
+//   manifest.webmanifest, icons/   what "Add to Home Screen" needs
 //
 // It is deliberately simple: local modules are concatenated in dependency
 // order inside a single <script type="module">. That works because the source
 // follows two rules, which the build verifies: named exports only, and no two
 // modules declare the same top-level name.
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENTRY_HTML = join(ROOT, 'index.html');
-const OUTPUT = join(ROOT, 'dist', 'planet-generator.html');
+const DIST = join(ROOT, 'dist');
+const PAGES = ['index.html', 'planet-generator.html'];
+const STATIC = ['manifest.webmanifest', 'icons'];
 
 const IMPORT = /^import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"];?[ \t]*\r?\n/gm;
 const DECLARATION = /^(?:export\s+)?(?:async\s+)?(?:const|let|var|function\*?|class)\s+([A-Za-z_$][\w$]*)/gm;
@@ -88,9 +96,19 @@ async function build() {
     .replace(styleTag, () => `<style>\n${css}\n  </style>`)
     .replace(scriptTag, () => `<script type="module">\n${script}\n  </script>`);
 
-  await mkdir(dirname(OUTPUT), { recursive: true });
-  await writeFile(OUTPUT, html);
-  console.log(`${rel(OUTPUT)}  ${(Buffer.byteLength(html) / 1024).toFixed(1)} kB  (${modules.length} modules)`);
+  // Start from an empty folder, so nothing stale is ever published.
+  await rm(DIST, { recursive: true, force: true });
+  await mkdir(DIST, { recursive: true });
+  const size = `${(Buffer.byteLength(html) / 1024).toFixed(1)} kB`;
+  for (const page of PAGES) {
+    await writeFile(join(DIST, page), html);
+    console.log(`dist/${page}  ${size}`);
+  }
+  for (const name of STATIC) {
+    await cp(join(ROOT, name), join(DIST, name), { recursive: true });
+    console.log(`dist/${name}`);
+  }
+  console.log(`${modules.length} modules:`);
   for (const { file } of modules) console.log(`  + ${rel(file)}`);
 }
 

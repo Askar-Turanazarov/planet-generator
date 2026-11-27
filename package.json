@@ -1,0 +1,16 @@
+{
+  "name": "planet-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time procedural 3D planet generator: Three.js, custom GLSL, zero external assets.",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "build": "node tools/build-single.mjs",
+    "preview": "node tools/serve.mjs 4173 dist",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
