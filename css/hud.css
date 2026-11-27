@@ -586,6 +586,260 @@ body.cinematic #hud-toggle:focus-visible {
   opacity: 1;
 }
 
+/* ---------- share ------------------------------------------------------- */
+
+.share-btn {
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.share-btn svg,
+.icon-btn svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The compact layout's icon version (see below). */
+.icon-btn {
+  display: none;
+}
+
+/* ---------- probe: marker, card, toast ---------------------------------- */
+
+/* A reticle on the ground; src/main.js moves it with a transform. */
+#marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+#marker::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  background: #fff;
+  border-radius: 50%;
+}
+
+#marker[hidden],
+.card[hidden],
+.card [hidden] {
+  display: none !important;
+}
+
+/* Desktop: above the hide / show button, in place of the hints. */
+.card {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  width: min(340px, calc(100% - (var(--panel-w) + var(--pad) * 2) * 2 - 24px));
+  max-height: calc(100% - 58px - var(--pad) - 56px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+body.has-card .hints {
+  display: none;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 0 14px;
+  color: var(--ink-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.card-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.card-close:hover {
+  color: var(--ink);
+}
+
+.card-close svg,
+.card-chevron {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  padding: 2px 14px 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-close:focus-visible,
+.card-main:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  outline-offset: -2px;
+}
+
+.card-title {
+  grid-column: 1;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.card-summary {
+  grid-column: 1;
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.card-chevron {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--ink-faint);
+  transition: transform 0.2s ease;
+}
+
+.card.open .card-chevron {
+  transform: rotate(180deg);
+}
+
+/* Unfolded, the figures are in the table below. */
+.card.open .card-summary,
+.card-more {
+  display: none;
+}
+
+.card.open .card-more {
+  display: block;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--line-soft);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Words large, figures small under them. */
+.card-words {
+  margin: 11px 0 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+}
+
+.card-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 0;
+  font-size: 10px;
+}
+
+.card-rows dt {
+  color: var(--ink-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.card-rows dd {
+  margin: 0;
+  text-align: right;
+}
+
+.card-text {
+  margin: 11px 0 0;
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  text-wrap: pretty;
+}
+
+.card-note {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Centred over the free part of the screen, near its top. */
+.toast {
+  position: absolute;
+  top: 60px;
+  left: calc(var(--free-left) + (100% - var(--free-left) - var(--free-right)) / 2);
+  max-width: calc(100% - 32px);
+  padding: 8px 14px;
+  transform: translate(-50%, -6px);
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(10, 12, 16, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-align: center;
+  text-transform: uppercase;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.show {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
 /* ---------- boot / error overlay ---------------------------------------- */
 
 #boot {
@@ -715,7 +969,7 @@ body.cinematic #hud-toggle:focus-visible {
     position: absolute;
     top: calc(var(--safe-t) + 12px);
     left: calc(var(--safe-l) + var(--pad));
-    right: calc(var(--safe-r) + var(--pad) + 52px);
+    right: calc(var(--safe-r) + var(--pad) + 100px);
     display: block;
     text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
   }
@@ -751,6 +1005,63 @@ body.cinematic #hud-toggle:focus-visible {
 
   body.cinematic #hud-toggle {
     opacity: 0.45;
+  }
+
+  /* ---- share: an icon left of the hide / show button ---- */
+  .share-btn {
+    display: none;
+  }
+
+  .icon-btn {
+    position: absolute;
+    top: calc(var(--safe-t) + 10px);
+    right: calc(var(--safe-r) + 60px);
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    pointer-events: auto;
+    background: rgba(10, 12, 16, 0.72);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--ink-dim);
+    cursor: pointer;
+  }
+
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .icon-btn:focus-visible {
+    outline: 1px solid rgba(255, 255, 255, 0.9);
+    outline-offset: 2px;
+  }
+
+  /* ---- probe card: over the tab bar, or over the open sheet ---- */
+  .card {
+    bottom: calc(var(--free-bottom) + 10px);
+    width: calc(100% - var(--safe-l) - var(--safe-r) - 24px);
+    max-width: 460px;
+    max-height: calc(100% - var(--free-top) - var(--free-bottom) - 20px);
+  }
+
+  /* Folded on a phone: the figures large, the name of the ground small. */
+  .card:not(.open) .card-title {
+    color: var(--ink-dim);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+  }
+
+  .card:not(.open) .card-summary {
+    margin-top: 3px;
+    font-size: 17px;
+    letter-spacing: 0.04em;
+  }
+
+  .toast {
+    top: calc(var(--free-top) + 8px);
   }
 
   /* ---- tab bar ---- */
@@ -873,11 +1184,29 @@ body.cinematic #hud-toggle:focus-visible {
   }
 
   .topbar {
-    right: calc(var(--safe-r) + var(--rail-w) + var(--pad));
+    right: calc(var(--safe-r) + var(--rail-w) + var(--pad) + 48px);
   }
 
   body[data-sheet] .topbar {
-    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + var(--pad));
+    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + var(--pad) + 48px);
+  }
+
+  /* Share sits left of the rail, or of the drawer when it is open. */
+  .icon-btn {
+    right: calc(var(--safe-r) + var(--rail-w) + 8px);
+  }
+
+  body[data-sheet] .icon-btn {
+    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + 8px);
+  }
+
+  /* The probe card: bottom left, clear of the rail and the drawer. */
+  .card {
+    bottom: calc(var(--safe-b) + 12px);
+    left: calc(var(--safe-l) + 12px);
+    width: min(320px, calc(100% - var(--free-right) - var(--safe-l) - 24px));
+    max-height: calc(100% - var(--free-top) - var(--safe-b) - 24px);
+    transform: none;
   }
 
   /* The button sits in the head of the rail. */
@@ -934,6 +1263,7 @@ body.cinematic #hud-toggle:focus-visible {
      every frame; on a mobile GPU that costs more than the planet itself. */
   .panel,
   .lang,
+  .card,
   #hud-toggle {
     background: rgba(10, 12, 16, 0.9);
     -webkit-backdrop-filter: none;
@@ -953,6 +1283,11 @@ body.cinematic #hud-toggle:focus-visible {
   .lang .btn {
     min-height: 38px;
     padding: 6px 14px;
+  }
+
+  .card-close {
+    width: 40px;
+    height: 40px;
   }
 
   .kicker,
@@ -1047,7 +1382,9 @@ body.cinematic {
   body[data-sheet] #sheet,
   #boot,
   .btn,
-  .tab {
+  .tab,
+  .toast,
+  .card-chevron {
     transition: none;
   }
 }

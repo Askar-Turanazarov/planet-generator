@@ -2,6 +2,10 @@
 //   sliders  - the values exposed in the HUD (0..1 unless noted)
 //   shape    - hidden art-direction parameters for geology, clouds, air, rings
 //   colors   - the palette, written in sRGB hex
+//   survey   - what the probe needs to speak in kilometres and degrees: the
+//              radius, km per unit of terrain height, the climate (equator
+//              temperature t0 and its drop to the pole, "span", in °C), and
+//              local names for the land-cover classes (see survey.js)
 // Everything here ends up in shader uniforms; switching archetype never
 // rebuilds a mesh or a material. The display name, class tag and description
 // of each world live in i18n.js under preset.<id>.*, one set per language.
@@ -11,6 +15,7 @@ export const PRESETS = [
     id: 'terran',
     seed: 4217,
     rings: false,
+    survey: { radiusKm: 6371, kmPerUnit: 18, t0: 30, span: 46 },
     sliders: {
       seaLevel: 0.56,
       relief: 0.62,
@@ -43,6 +48,10 @@ export const PRESETS = [
     id: 'arrakis',
     seed: 10191,
     rings: false,
+    survey: {
+      radiusKm: 5900, kmPerUnit: 16, t0: 58, span: 50,
+      names: { forest: 'rockyPlain', grassland: 'rockyPlain', taiga: 'coldDesert', tundra: 'coldDesert', faults: 'canyons' },
+    },
     sliders: {
       seaLevel: 0.0,
       relief: 0.78,
@@ -75,6 +84,13 @@ export const PRESETS = [
     id: 'mustafar',
     seed: 66,
     rings: false,
+    survey: {
+      radiusKm: 4200, kmPerUnit: 14, t0: 120, span: 60, humidity: false,
+      names: {
+        grassland: 'basalt', forest: 'basalt', taiga: 'basalt', desert: 'basalt', tundra: 'basalt',
+        snow: 'ash', beach: 'lavaShore', mountains: 'volcanic', faults: 'lavaFlow',
+      },
+    },
     sliders: {
       seaLevel: 0.35,
       relief: 0.85,
@@ -107,6 +123,13 @@ export const PRESETS = [
     id: 'europa',
     seed: 1610,
     rings: true,
+    survey: {
+      radiusKm: 1561, kmPerUnit: 4, t0: -130, span: 40, humidity: false,
+      names: {
+        grassland: 'icePlain', forest: 'icePlain', taiga: 'icePlain', desert: 'icePlain', tundra: 'icePlain',
+        dunes: 'icePlain', beach: 'icePlain', mountains: 'iceRidges', snow: 'frost', faults: 'iceCracks',
+      },
+    },
     sliders: {
       seaLevel: 0.0,
       relief: 0.3,
@@ -139,6 +162,10 @@ export const PRESETS = [
     id: 'kepler',
     seed: 452,
     rings: true,
+    survey: {
+      radiusKm: 10200, kmPerUnit: 26, t0: 34, span: 48,
+      names: { forest: 'violetForest', taiga: 'violetForest', grassland: 'emeraldPlain', desert: 'emeraldPlain' },
+    },
     sliders: {
       seaLevel: 0.5,
       relief: 0.7,

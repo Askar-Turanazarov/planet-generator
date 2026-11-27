@@ -7,8 +7,12 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createUniforms } from './uniforms.js';
-import { PRESETS } from './presets.js';
+import { PRESETS, SLIDER_KEYS } from './presets.js';
 import { PlanetState, parseSeed } from './state.js';
+import { decodeView, isModified, createLinkWriter } from './link.js';
+import { createCards } from './cards.js';
+import { createProbe } from './probe.js';
+import { describePoint } from './survey.js';
 import { createWorld } from './world.js';
 import { CameraRig } from './camera.js';
 import { createHud } from './hud.js';
@@ -397,6 +401,15 @@ async function start() {
   // ------------------------------------------------------------------
   // HUD wiring
   // ------------------------------------------------------------------
+  // The archetype and seed the user chose. The state takes them over only
+  // in the dark of a transition; the link must not wait for that.
+  let presetIndex = 0;
+  let worldSeed = PRESETS[0].seed;
+  // The address follows the screen (see link.js); every change calls touch().
+  const link = createLinkWriter(describeView);
+  const LINK_AFTER_FLIGHT = 2300;   // ms: a camera flight lasts 2 s
+  const LINK_AFTER_DRAG = 1500;     // ms: the controls glide on after release
+
   const hud = createHud({
     presets: PRESETS,
     cameras: CAMERAS,
@@ -404,6 +417,8 @@ async function start() {
     on: {
       preset(index) {
         const preset = PRESETS[index];
+        presetIndex = index;
+        worldSeed = preset.seed;
         hud.setPreset(index);
         hud.syncSliders(preset.sliders);
         hud.setRings(preset.rings);
@@ -412,6 +427,7 @@ async function start() {
           state.applyPreset(preset);
           state.snap();
         }, 0.55);
+        link.touch();
       },
       camera(id) {
         if (id === 'ring' && state.get('ringsOn') < 0.5) {
@@ -421,6 +437,7 @@ async function start() {
         }
         const pose = cameraPose(id);
         rig.flyTo(pose.dir, pose.dist);
+        link.touch(LINK_AFTER_FLIGHT);
       },
       param(key, value) {
         if (key === 'renderScale') {
@@ -430,52 +447,313 @@ async function start() {
         }
         state.set(key, value);
         if (key !== 'sunAngle' && key !== 'rotSpeed') hud.setModified(true);
+        link.touch();
       },
       rings(enabled) {
         state.set('ringsOn', enabled ? 1 : 0);
         hud.setRings(enabled);
         hud.setModified(true);
+        link.touch();
       },
       seed(text) {
-        const seed = parseSeed(text);
-        hud.setSeed(seed);
-        hud.setModified(true);
-        dipTransition(() => state.setSeed(seed), 0.36);
+        reseed(parseSeed(text));
       },
       randomize() {
-        const seed = Math.floor(Math.random() * 1000000);
-        hud.setSeed(seed);
-        hud.setModified(true);
-        dipTransition(() => state.setSeed(seed), 0.36);
+        reseed(Math.floor(Math.random() * 1000000));
       },
       // A sheet opened or closed, or the interface was hidden.
       layout: measureFraming,
     },
   });
 
+  function reseed(seed) {
+    worldSeed = seed;
+    hud.setSeed(seed);
+    hud.setModified(true);
+    dipTransition(() => state.setSeed(seed), 0.36);
+    link.touch();
+  }
+  rig.controls.addEventListener('end', () => link.touch(LINK_AFTER_DRAG));
+
+  // ------------------------------------------------------------------
+  // The world in the address (link.js)
+  // ------------------------------------------------------------------
+  function describeView() {
+    const sliders = {};
+    for (const key of SLIDER_KEYS) sliders[key] = state.get(key);
+    const view = rig.destination;
+    return {
+      preset: PRESETS[presetIndex],
+      seed: worldSeed,
+      sliders,
+      rings: state.get('ringsOn') > 0.5,
+      sunAngle: state.get('sunAngle'),
+      rotSpeed: state.get('rotSpeed'),
+      camera: { dir: view.dir.toArray(), dist: view.dist },
+      spin: world.planet.rotation.y,
+      marker: marker.dir ? latLonOf(marker.dir) : null,
+    };
+  }
+
+  /** Put a decoded link on screen: at once (start-up) or behind a dip. */
+  function applyView(view, instant) {
+    presetIndex = PRESETS.indexOf(view.preset);
+    worldSeed = view.seed;
+    hud.setPreset(presetIndex);
+    hud.syncSliders({ ...view.sliders, sunAngle: view.sunAngle, rotSpeed: view.rotSpeed });
+    hud.setRings(view.rings);
+    hud.setSeed(view.seed);
+    hud.setModified(isModified(view));
+    const apply = () => {
+      state.applyPreset(view.preset);
+      for (const key of SLIDER_KEYS) state.set(key, view.sliders[key]);
+      state.set('ringsOn', view.rings ? 1 : 0);
+      state.set('sunAngle', view.sunAngle);
+      state.set('rotSpeed', view.rotSpeed);
+      state.setSeed(view.seed);
+      state.snap();
+      state.update(0);                       // sun direction for the default pose
+      if (view.spin !== undefined) {
+        world.planet.rotation.y = view.spin;
+        world.clouds.rotation.y = view.spin;
+      }
+      rig.cancel();
+      const pose = view.camera
+        ? { dir: new THREE.Vector3().fromArray(view.camera.dir), dist: view.camera.dist }
+        : cameraPose('overview');
+      rig.jumpTo(pose.dir, pose.dist);
+      if (view.marker) setMarker(dirOfLatLon(view.marker));
+      else clearMarker();
+      // Write the address back as this tab now sees it (fills in what the link left out).
+      link.touch();
+    };
+    if (instant) apply();
+    else dipTransition(apply, 0.55);
+  }
+
+  // A link opened in this tab (pasted into the address, or Back / Forward).
+  window.addEventListener('hashchange', () => {
+    if (window.location.hash === link.current) return;
+    const view = decodeView(window.location.hash, PRESETS);
+    if (view) applyView(view, false);
+  });
+
+  // ------------------------------------------------------------------
+  // Share
+  // ------------------------------------------------------------------
+  const cards = createCards(i18n);
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (error) {
+      // Refused (no permission, no focus): try the old way.
+    }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+      document.body.appendChild(area);
+      area.select();
+      const done = document.execCommand('copy');
+      area.remove();
+      return done;
+    } catch (error) {
+      return false;
+    }
+  }
+  async function share() {
+    const url = link.flush();
+    // A phone has a system share sheet; a desktop is better served by the clipboard.
+    if (window.matchMedia('(pointer: coarse)').matches && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: i18n.t(`preset.${PRESETS[presetIndex].id}.name`), url });
+        return;
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;   // the user closed the sheet
+      }
+    }
+    cards.toast((await copyText(url)) ? 'toast.copied' : 'toast.copyFailed');
+  }
+  document.getElementById('share').addEventListener('click', share);
+  document.getElementById('share-top').addEventListener('click', share);
+
+  // ------------------------------------------------------------------
+  // Probe: tap the planet, read the ground there (probe.js, survey.js)
+  // ------------------------------------------------------------------
+  const probe = createProbe(renderer, uniforms);
+  const PROBE_INTERVAL = 0.3;       // s between readings while a marker is set
+  const TAP_SLOP = 6;               // px a tap may wander
+  const TAP_TIME = 300;             // ms a tap may last
+  const marker = {
+    dir: null,                      // planet space, unit length
+    sample: null,
+    clock: 0,
+    node: document.getElementById('marker'),
+    world: new THREE.Vector3(),
+    screen: new THREE.Vector3(),
+    toCamera: new THREE.Vector3(),
+  };
+  const raycaster = new THREE.Raycaster();
+  const pointerNdc = new THREE.Vector2();
+  const unitSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  const hit = new THREE.Vector3();
+
+  function latLonOf(dir) {
+    return {
+      lat: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1))),
+      lon: THREE.MathUtils.radToDeg(Math.atan2(-dir.z, dir.x)),
+    };
+  }
+  function dirOfLatLon({ lat, lon }) {
+    const phi = THREE.MathUtils.degToRad(lat);
+    const lambda = THREE.MathUtils.degToRad(lon);
+    return new THREE.Vector3(Math.cos(phi) * Math.cos(lambda), Math.sin(phi), -Math.cos(phi) * Math.sin(lambda));
+  }
+
+  function worldInfo() {
+    const preset = PRESETS[presetIndex];
+    let sunElevation = 0;
+    if (marker.dir) {
+      marker.world.copy(marker.dir).applyQuaternion(world.planet.quaternion);
+      sunElevation = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(marker.world.dot(state.sunDir), -1, 1)));
+    }
+    return {
+      survey: preset.survey,
+      presetIce: preset.sliders.ice,
+      ice: state.cur.ice,
+      seaLevel: uniforms.uSeaLevel.value,
+      biomeDatum: uniforms.uBiomeDatum.value,
+      lavaSea: state.cur.liquidEmissive > 0.3,
+      veinEmissive: state.cur.veinEmissive,
+      veinMix: state.cur.veinMix,
+      cityLights: state.cur.cityLights,
+      sunElevation,
+    };
+  }
+  function cardContent() {
+    if (!marker.sample) return null;
+    const info = worldInfo();
+    const sample = {
+      ...marker.sample,
+      landH: marker.sample.h0 - info.seaLevel,
+      bioH: marker.sample.h0 - info.biomeDatum,
+    };
+    return describePoint(sample, info, i18n);
+  }
+
+  function readGround() {
+    if (!marker.dir) return;
+    marker.clock = 0;
+    const dir = marker.dir;
+    probe.sample(dir).then((sample) => {
+      // Dropped for a newer request, or the marker moved / went away meanwhile.
+      if (!sample || marker.dir !== dir) return;
+      marker.sample = sample;
+      cards.show(cardContent, { onClose: clearMarker });
+    });
+  }
+  function setMarker(dir) {
+    marker.dir = dir.normalize();
+    marker.sample = null;
+    marker.node.hidden = false;
+    // Read on the next frame that may (see updateMarker): not from half-built caches.
+    marker.clock = PROBE_INTERVAL;
+  }
+  function clearMarker() {
+    if (!marker.dir) return;
+    marker.dir = null;
+    marker.sample = null;
+    marker.node.hidden = true;
+    cards.hide();
+    link.touch();
+  }
+
+  function probeAt(clientX, clientY) {
+    pointerNdc.set((clientX / viewWidth) * 2 - 1, -(clientY / viewHeight) * 2 + 1);
+    // The projection carries the view offset, so the ray follows the framing.
+    raycaster.setFromCamera(pointerNdc, camera);
+    if (!raycaster.ray.intersectSphere(unitSphere, hit)) {
+      clearMarker();
+      return;
+    }
+    setMarker(world.planet.worldToLocal(hit.clone()));
+    link.touch();
+  }
+
+  // A short tap that does not move: a drag turns the camera instead, and a
+  // second finger means a pinch.
+  const tap = { id: null, x: 0, y: 0, time: 0, spoilt: false };
+  canvas.addEventListener('pointerdown', (event) => {
+    if (tap.id !== null) {
+      tap.spoilt = true;
+      return;
+    }
+    if (event.button !== 0) return;
+    Object.assign(tap, { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now(), spoilt: false });
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (event.pointerId === tap.id && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > TAP_SLOP) tap.spoilt = true;
+  });
+  canvas.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== tap.id) return;
+    const isTap = !tap.spoilt && performance.now() - tap.time < TAP_TIME
+      && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) <= TAP_SLOP;
+    tap.id = null;
+    if (isTap) probeAt(event.clientX, event.clientY);
+  });
+  canvas.addEventListener('pointercancel', (event) => {
+    if (event.pointerId === tap.id) tap.id = null;
+  });
+
+  /** Keep the reticle on its spot of ground, and the reading fresh. */
+  function updateMarker(dt) {
+    if (!marker.dir) return;
+    world.planet.updateMatrixWorld();
+    marker.world.copy(marker.dir).applyMatrix4(world.planet.matrixWorld);
+    marker.toCamera.copy(camera.position).sub(marker.world).normalize();
+    // Fades out towards the limb and is gone on the far side.
+    const facing = THREE.MathUtils.smoothstep(marker.world.dot(marker.toCamera), 0.04, 0.2);
+    marker.screen.copy(marker.world).project(camera);
+    const x = (marker.screen.x * 0.5 + 0.5) * viewWidth;
+    const y = (0.5 - marker.screen.y * 0.5) * viewHeight;
+    marker.node.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    marker.node.style.opacity = facing.toFixed(2);
+    // New readings while the ground turns into night or the sliders move;
+    // not while the caches are being rebuilt or the screen is dark.
+    marker.clock += dt;
+    if (marker.clock >= PROBE_INTERVAL && !baker.busy && !dip) readGround();
+  }
+
   // Compile the shaders before the first bake and the first frame, and wait
   // for them without blocking the page (see precompile below).
   await precompile(renderer, hdrTarget, camera, [
     world.scene,
     baker.compileScene(),
+    probe.compileScene(),
     passScene([bloom.materialHighPassFilter, ...bloom.separableBlurMaterials, bloom.compositeMaterial]),
   ]);
 
-  // Initial world.
-  state.applyPreset(PRESETS[0]);
-  hud.setPreset(0);
-  hud.syncSliders({ ...PRESETS[0].sliders, sunAngle: state.get('sunAngle'), rotSpeed: state.get('rotSpeed'), renderScale });
-  hud.setRings(PRESETS[0].rings);
-  hud.setSeed(PRESETS[0].seed);
-  state.update(0);
+  // Initial world: the one in the address, else the first archetype.
+  resize();
+  const linked = decodeView(window.location.hash, PRESETS);
+  applyView(linked || {
+    preset: PRESETS[0],
+    seed: PRESETS[0].seed,
+    sliders: { ...PRESETS[0].sliders },
+    rings: PRESETS[0].rings,
+    sunAngle: state.get('sunAngle'),
+    rotSpeed: state.get('rotSpeed'),
+  }, true);
+  hud.syncSliders({ renderScale });
   baker.bakeSky();
   baker.requestWorld(0);
   baker.step();
-  resize();
-  {
-    const pose = cameraPose('overview');
-    rig.jumpTo(pose.dir, pose.dist);
-  }
+  // The address always describes the screen, from the first moment.
+  link.touch();
 
   // ------------------------------------------------------------------
   // Frame loop
@@ -573,6 +851,7 @@ async function start() {
 
     if (rendering) composer.render(dt);
     gpuEnd();
+    updateMarker(dt);
     // A frame that waited on a bake says nothing about the steady load.
     govern(rendering ? interval : 0);
 
@@ -625,7 +904,10 @@ async function start() {
       if (governor.locked) setAutoScale(scale);
     },
   };
-  window.planetGenerator = { renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing };
+  window.planetGenerator = {
+    renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
+    probe, cards, link, marker, probeAt, setMarker, describeView,
+  };
 }
 
 /**

@@ -537,3 +537,64 @@ float ringShadow(vec3 P) {
   return 1.0 - 0.9 * occ * uRingsOn;
 }
 `;
+
+// ---------------------------------------------------------------------------
+// Land cover: the rules that decide what the ground is made of. The surface
+// shader paints with them and the probe (probe.js) reports them, so what a
+// probe says always matches what is on screen. Heights are those of the
+// surface shader: bioH above the biome datum, landH above the liquid.
+// ---------------------------------------------------------------------------
+export const GLSL_SURFACE = /* glsl */ `
+uniform float uIce;
+uniform float uSnow;
+uniform float uMoisture;
+
+// Moisture: noise + a dry belt at the horse latitudes + a wet equator.
+float coverMoisture(float lat, float climX, float grain) {
+  return clamp(0.5 + 0.85 * climX + 0.24 * grain + (uMoisture - 0.5) * 1.2
+      - 0.30 * exp(-sq((lat - 0.42) / 0.13))
+      + 0.18 * exp(-sq(lat / 0.16)), 0.0, 1.0);
+}
+
+// Cold lowland (tundra) towards the poles and up the slopes.
+float coverCold(float lat, float climY, float bioH) {
+  return smoothstep(0.52, 0.86, lat + climY * 0.14 + max(bioH, 0.0) * 0.45);
+}
+
+// 0 on the beach (sand), 1 inland.
+float coverInland(float bioH, float climY, float grain) {
+  return smoothstep(0.006, 0.03, bioH + climY * 0.008 + grain * 0.005);
+}
+
+float coverSteep(float slope) {
+  return smoothstep(2.2, 5.5, slope);
+}
+
+// Rock on high ground and on steep faces.
+float coverRock(float bioH, float grain, float steep) {
+  return max(smoothstep(0.24, 0.48, bioH + grain * 0.04),
+      0.8 * steep * smoothstep(0.05, 0.20, bioH));
+}
+
+// Snow line drops towards the poles; steep faces shed their snow.
+float coverSnow(float lat, float bioH, float climY, float grain, float steep) {
+  float snowLine = mix(0.46, 0.06, smoothstep(0.15, 0.90, lat));
+  return smoothstep(snowLine, snowLine + 0.08, bioH + climY * 0.04 + grain * 0.025)
+      * (1.0 - 0.75 * steep) * uSnow;
+}
+
+// Polar caps: latitude threshold with a ragged, elevation-aware edge.
+float coverIce(float lat, float climY, float bioH) {
+  float iceEdge = mix(1.08, 0.52, uIce);
+  return smoothstep(iceEdge - 0.015, iceEdge + 0.02, lat + climY * 0.10 + max(bioH, 0.0) * 0.35)
+      * step(0.001, uIce);
+}
+
+// Where towns may stand: low, near the coast, temperate, not frozen.
+float coverHabitable(float lat, float bioH, float landH, float moist, float ice, float snow) {
+  float lowland = (1.0 - smoothstep(0.10, 0.30, bioH)) * smoothstep(0.002, 0.012, landH);
+  float coastal = mix(0.45, 1.0, 1.0 - smoothstep(0.0, 0.10, bioH));
+  float temperate = (1.0 - smoothstep(0.62, 0.86, lat)) * mix(0.3, 1.0, smoothstep(0.25, 0.55, moist));
+  return lowland * coastal * temperate * (1.0 - ice) * (1.0 - snow);
+}
+`;

@@ -26,6 +26,12 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
   scattering (Rayleigh + Mie) with a bright limb and sunset tint on the terminator, a ring system
   with gaps and the planet's shadow across it, stars, a galactic band and the sun disc.
 - **Post-processing**: HDR pipeline, bloom, ACES filmic tone mapping, dithering.
+- **Surface probe**: a click or a tap on the planet drops a marker and opens a card with what is
+  there: the kind of terrain (29 kinds, named to suit each world), an estimate of height or depth in
+  km and of temperature in °C, humidity, coordinates and how high the sun stands.
+- **Links to worlds**: the address always holds the world on screen (archetype, seed, changed sliders,
+  camera, marker). **Share** sends it from a phone or copies it on a computer; opening the link brings
+  the same view back.
 - **Three interface languages**: English, Russian, Uzbek. The choice is remembered; numbers follow
   the language (decimal comma or point).
 - **No build step is required to run it**, there are no dependencies to install, and no data is
@@ -40,7 +46,9 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
 | Choose an archetype | Buttons, or keys `1`–`5` | **Worlds** tab |
 | New random seed | **Randomize Seed**, or key `R` | **Worlds** tab → **Randomize Seed** |
 | Hide the interface (cinematic mode) | Key `H`, or the button at the bottom | The eye button |
-| Close the open section | `Esc` | Tap the active tab again |
+| Probe a point | Click the planet | Tap the planet (the card opens folded; tap it for details) |
+| Share the world | **Share** | The share button at the top |
+| Close the open section, then the card | `Esc` | Tap the active tab again; the cross on the card |
 
 Sliders: Sea Level, Mountain Relief, Polar Ice Coverage, Civilization Lights, Cloud Coverage,
 Atmosphere Density, Atmosphere Hue Shift, Rings On/Off and Ring Tilt, Sun Orbit Angle,
@@ -155,7 +163,11 @@ src/world.js               meshes: planet, clouds, atmosphere, rings, sky
 src/bake.js                bakes terrain, cloud and sky cube maps, the ring profile, the atmosphere LUT
 src/camera.js              orbit controls and smooth fly-to moves
 src/hud.js                 panels, tabs, sliders, telemetry, language switch, hot keys
-src/shaders/               GLSL: shared chunks, bake passes, planet, clouds, atmosphere, rings, sky
+src/probe.js               reads the terrain caches under the marker on the GPU
+src/survey.js              turns a probe reading into terrain kind, words and figures
+src/cards.js               the probe card and the toast
+src/link.js                the world in the address: encode, decode, write back
+src/shaders/               GLSL: shared chunks, bake passes, planet, probe, clouds, atmosphere, rings, sky
 tools/serve.mjs            static dev server
 tools/build-single.mjs     single-file build
 tools/make-icons.mjs       icon generator
@@ -224,6 +236,12 @@ oʻzgaradi.
   shafaq tusi; oraliqlari bor va sayyora soyasi tushadigan halqalar tizimi; yulduzlar, galaktika
   tasmasi va quyosh diski.
 - **Tasvirga ishlov berish**: HDR, blum (yorugʻlik halqasi), ACES ton xaritalash, dizering.
+- **Sirt zondi**: sayyorani bosish yoki unga tegish sirtga belgi qoʻyadi va oʻsha nuqta haqida kartochka
+  ochadi: joy turi (29 xil, har bir olamga mos nomlar bilan), balandlik yoki chuqurlik (km) va harorat
+  (°C) taxmini, namlik, koordinatalar va quyosh balandligi.
+- **Olamga havola**: manzil satrida doim ekrandagi olam turadi (sayyora turi, kalit, oʻzgargan slayderlar,
+  kamera, belgi). **Ulashish** telefonda havolani yuboradi, kompyuterda nusxalaydi; havolani ochish
+  xuddi shu koʻrinishni qaytaradi.
 - **Interfeys uch tilda**: inglizcha, ruscha, oʻzbekcha. Tanlov eslab qolinadi; sonlar tilga mos
   yoziladi (oʻnli vergul yoki nuqta).
 - **Ishga tushirish uchun yigʻish shart emas**, oʻrnatiladigan kutubxonalar yoʻq, hech qanday
@@ -238,7 +256,9 @@ oʻzgaradi.
 | Sayyora turini tanlash | Tugmalar yoki `1`–`5` klavishlari | **Olamlar** boʻlimi |
 | Yangi tasodifiy kalit | **Tasodifiy kalit** tugmasi yoki `R` | **Olamlar** boʻlimi → **Tasodifiy kalit** |
 | Interfeysni yashirish (kino rejimi) | `H` klavishi yoki pastdagi tugma | Koʻz belgili tugma |
-| Ochiq boʻlimni yopish | `Esc` | Faol boʻlim tugmasini yana bir marta bosish |
+| Nuqtani zond bilan oʻrganish | Sayyorani bosish | Sayyoraga tegish (kartochka yigʻilgan holda ochiladi; tafsilotlar uchun unga tegish) |
+| Olamni ulashish | **Ulashish** | Yuqoridagi ulashish tugmasi |
+| Ochiq boʻlimni, soʻng kartochkani yopish | `Esc` | Faol boʻlim tugmasini yana bir marta bosish; kartochkadagi xoch |
 
 Slayderlar: dengiz sathi, togʻ relyefi, qutb muzliklari, sivilizatsiya chiroqlari, bulutlilik,
 atmosfera zichligi, atmosfera tusi, halqalar (bor yoki yoʻq) va ularning ogʻishi, quyosh burchagi,
@@ -358,7 +378,11 @@ src/world.js               meshlar: sayyora, bulutlar, atmosfera, halqalar, osmo
 src/bake.js                relyef, bulut va osmon kub xaritalarini, halqa profilini, atmosfera jadvalini hisoblaydi
 src/camera.js              orbital boshqaruv va ravon uchib borish
 src/hud.js                 panellar, boʻlimlar, slayderlar, telemetriya, til tanlash, tezkor klavishlar
-src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, bulutlar, atmosfera, halqalar, osmon
+src/probe.js               belgi ostidagi relyef keshlarini GPU da oʻqiydi
+src/survey.js              zond oʻlchovini joy turi, soʻzlar va raqamlarga aylantiradi
+src/cards.js               zond kartochkasi va qisqa xabar
+src/link.js                manzildagi olam: yozish, oʻqish, yangilash
+src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, zond, bulutlar, atmosfera, halqalar, osmon
 tools/serve.mjs            statik ishlab chiqish serveri
 tools/build-single.mjs     bitta faylga yigʻish
 tools/make-icons.mjs       belgilar generatori
@@ -424,6 +448,12 @@ barcha huquqlar muallifda qoladi.
   рассеяние в атмосфере (Рэлей и Ми) с ярким лимбом и закатным оттенком на терминаторе; система колец
   со щелями и тенью планеты на них; звёзды, галактическая полоса и диск солнца.
 - **Пост-обработка**: HDR, блум, тональная компрессия ACES, дизеринг.
+- **Зонд**: щелчок или касание по планете ставит метку и открывает карточку с тем, что там: тип
+  местности (29 типов, названия под каждый мир), оценка высоты или глубины в км и температуры в °C,
+  влажность, координаты и высота солнца.
+- **Ссылки на миры**: в адресе страницы всегда записан мир на экране (архетип, ключ, изменённые
+  слайдеры, камера, метка). **Поделиться** отправляет ссылку с телефона или копирует её на компьютере;
+  по ссылке открывается тот же вид.
 - **Три языка интерфейса**: английский, русский, узбекский. Выбор запоминается; числа пишутся по
   правилам языка (десятичная запятая или точка).
 - **Для запуска не нужна сборка**, нет устанавливаемых зависимостей, никакие данные не собираются и
@@ -438,7 +468,9 @@ barcha huquqlar muallifda qoladi.
 | Выбрать архетип | Кнопки или клавиши `1`–`5` | Вкладка **Миры** |
 | Новый случайный ключ | Кнопка **Случайный ключ** или клавиша `R` | Вкладка **Миры** → **Случайный ключ** |
 | Скрыть интерфейс (кинорежим) | Клавиша `H` или кнопка внизу | Кнопка с глазом |
-| Закрыть открытый раздел | `Esc` | Ещё раз нажать на активную вкладку |
+| Узнать данные точки | Щелчок по планете | Касание планеты (карточка открывается свёрнутой; касание по ней — подробности) |
+| Поделиться миром | **Поделиться** | Кнопка «поделиться» вверху |
+| Закрыть открытый раздел, затем карточку | `Esc` | Ещё раз нажать на активную вкладку; крестик на карточке |
 
 Клавиши `H` и `R` работают и при русской раскладке.
 
@@ -556,7 +588,11 @@ src/world.js               меши: планета, облака, атмосф�
 src/bake.js                запекание кубических карт рельефа, облаков и неба, профиля колец, таблицы атмосферы
 src/camera.js              орбитальное управление и плавные перелёты
 src/hud.js                 панели, вкладки, слайдеры, телеметрия, выбор языка, горячие клавиши
-src/shaders/               GLSL: общие блоки, запекание, планета, облака, атмосфера, кольца, небо
+src/probe.js               читает кэши рельефа под меткой на GPU
+src/survey.js              превращает показания зонда в тип местности, слова и числа
+src/cards.js               карточка зонда и всплывающее уведомление
+src/link.js                мир в адресе страницы: запись, чтение, обновление
+src/shaders/               GLSL: общие блоки, запекание, планета, зонд, облака, атмосфера, кольца, небо
 tools/serve.mjs            статический сервер для разработки
 tools/build-single.mjs     сборка в один файл
 tools/make-icons.mjs       генератор иконок

@@ -59,6 +59,9 @@
           <div class="kicker"><span data-i18n="kicker.survey">Planetary Survey</span><span id="ident-index">01 / 05</span></div>
           <h1 id="planet-name">Terran Prime</h1>
           <p id="planet-class">&nbsp;</p>
+          <button id="share" class="btn share-btn" type="button" title="Copy a link to exactly this view" data-i18n-title="share.title">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12.5V3M6.5 6.5 10 3l3.5 3.5"/><path d="M6 9.5H4.5v7.5h11V9.5H14"/></svg><span data-i18n="share.button">Share</span>
+          </button>
         </header>
         <div class="group" data-tab="worlds">
           <div class="group-title"><span data-i18n="group.archetype">Archetype</span><span class="hotkey">1–5</span></div>
@@ -85,9 +88,41 @@
       <span class="mouse-only"><kbd data-i18n="hint.scrollKey">Scroll</kbd><span data-i18n="hint.scroll">zoom</span></span>
       <span class="touch-only"><kbd data-i18n="hint.touchDragKey">Drag</kbd><span data-i18n="hint.drag">orbit</span></span>
       <span class="touch-only"><kbd data-i18n="hint.touchZoomKey">Pinch</kbd><span data-i18n="hint.scroll">zoom</span></span>
+      <span class="mouse-only"><kbd data-i18n="hint.tapKey">Click</kbd><span data-i18n="hint.tap">probe</span></span>
+      <span class="touch-only"><kbd data-i18n="hint.touchTapKey">Tap</kbd><span data-i18n="hint.tap">probe</span></span>
       <span class="mouse-only"><kbd>R</kbd><span data-i18n="hint.reseed">reseed</span></span>
       <span class="mouse-only"><kbd>H</kbd><span data-i18n="hint.cinematic">cinematic</span></span>
     </div>
+
+    <!-- Phone / tablet layout only: the share button, an icon next to the
+         hide / show one. -->
+    <button id="share-top" class="icon-btn" type="button" aria-label="Share" data-i18n-aria="share.button" title="Copy a link to exactly this view" data-i18n-title="share.title">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12.5V3M6.5 6.5 10 3l3.5 3.5"/><path d="M6 9.5H4.5v7.5h11V9.5H14"/></svg>
+    </button>
+
+    <!-- The probe: a reticle on the ground (placed every frame by src/main.js)
+         and the card with the reading (src/cards.js). -->
+    <div id="marker" aria-hidden="true" hidden></div>
+    <div id="card" class="card" role="region" aria-labelledby="card-title" hidden>
+      <div class="card-head">
+        <span class="card-kicker"></span>
+        <button class="card-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+        </button>
+      </div>
+      <button class="card-main" type="button" aria-expanded="false" aria-controls="card-more">
+        <span id="card-title" class="card-title" aria-live="polite"></span>
+        <span class="card-summary"></span>
+        <svg class="card-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>
+      </button>
+      <div id="card-more" class="card-more">
+        <p class="card-words"></p>
+        <dl class="card-rows"></dl>
+        <p class="card-text"></p>
+        <p class="card-note"></p>
+      </div>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <!-- Phone / tablet layout only: one tab per group of controls. -->
     <nav id="tabs" class="tabs" aria-label="Sections" data-i18n-aria="aria.tabs"></nav>

@@ -42,12 +42,20 @@ export class CameraRig {
     this.flight = {
       fromDir,
       fromDist: this.camera.position.length(),
+      toDir,
       toDist: distance,
       rotation: new THREE.Quaternion().setFromUnitVectors(fromDir, toDir),
       t: 0,
       duration,
     };
     this.controls.enabled = false;
+  }
+
+  /** Where the camera is headed: the end of a flight, else where it is. */
+  get destination() {
+    const f = this.flight;
+    if (f) return { dir: f.toDir.clone(), dist: f.toDist };
+    return { dir: this.camera.position.clone().normalize(), dist: this.camera.position.length() };
   }
 
   cancel() {

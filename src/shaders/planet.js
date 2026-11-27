@@ -4,7 +4,7 @@
 // synthesised from 3D noise, see bake.js). Everything a slider touches (sea
 // level, relief, ice, lights, palette) is assembled here from uniforms, so the
 // controls never trigger a rebuild of anything.
-import { GLSL_COMMON, GLSL_NOISE, GLSL_CLOUDS, GLSL_RINGS } from './chunks.js';
+import { GLSL_COMMON, GLSL_NOISE, GLSL_CLOUDS, GLSL_RINGS, GLSL_SURFACE } from './chunks.js';
 
 export const PLANET_VERT = /* glsl */ `
 precision highp float;
@@ -25,6 +25,7 @@ ${GLSL_COMMON}
 ${GLSL_NOISE}
 ${GLSL_CLOUDS}
 ${GLSL_RINGS}
+${GLSL_SURFACE}
 
 uniform mat4 modelMatrix;
 
@@ -43,10 +44,7 @@ uniform vec3 uDetail;        // weights of the three micro-relief octaves (LOD)
 uniform float uVeinMix;
 uniform float uVeinEmissive;
 
-// --- climate & surface response ---
-uniform float uIce;
-uniform float uSnow;
-uniform float uMoisture;
+// --- climate & surface response (uIce, uSnow, uMoisture: GLSL_SURFACE) ---
 uniform float uCityLights;
 uniform float uLiquidEmissive;
 uniform float uLiquidSpec;
@@ -154,10 +152,8 @@ void main() {
 
   float night = smoothstep(0.06, -0.16, mu);
 
-  // Polar caps: latitude threshold with a ragged, elevation-aware edge.
-  float iceEdge = mix(1.08, 0.52, uIce);
-  float ice = smoothstep(iceEdge - 0.015, iceEdge + 0.02,
-      lat + aux.w * 0.10 + max(bioH, 0.0) * 0.35) * step(0.001, uIce);
+  // Polar caps.
+  float ice = coverIce(lat, aux.w, bioH);
 
   vec3 albedo = vec3(0.0);
   vec3 emissive = vec3(0.0);
@@ -171,20 +167,16 @@ void main() {
     float slope = length(grad);
     nObj = normalize(p - uBump * (grad.x * T + grad.y * B));
 
-    // Moisture: noise + a dry belt at the horse latitudes + a wet equator.
-    float moist = clamp(0.5 + 0.85 * aux.z + 0.24 * grain + (uMoisture - 0.5) * 1.2
-        - 0.30 * exp(-sq((lat - 0.42) / 0.13))
-        + 0.18 * exp(-sq(lat / 0.16)), 0.0, 1.0);
+    float moist = coverMoisture(lat, aux.z, grain);
 
     vec3 low = mix(uColLowDry, uColLowWet, smoothstep(0.30, 0.62, moist));
-    float cold = smoothstep(0.52, 0.86, lat + aux.w * 0.14 + max(bioH, 0.0) * 0.45);
+    float cold = coverCold(lat, aux.w, bioH);
     low = mix(low, uColCold, cold);
-    albedo = mix(uColSand, low, smoothstep(0.006, 0.03, bioH + aux.w * 0.008 + grain * 0.005));
+    albedo = mix(uColSand, low, coverInland(bioH, aux.w, grain));
 
     // Stratified rock on high ground and on steep faces.
-    float steep = smoothstep(2.2, 5.5, slope);
-    float rocky = max(smoothstep(0.24, 0.48, bioH + grain * 0.04),
-        0.8 * steep * smoothstep(0.05, 0.20, bioH));
+    float steep = coverSteep(slope);
+    float rocky = coverRock(bioH, grain, steep);
     // Strata follow elevation, bent by the ridge field so they read as
     // folded beds rather than as contour lines.
     // (two incommensurate bed thicknesses, so the banding never looks ruled).
@@ -193,10 +185,7 @@ void main() {
     // The beds show on cliffs and scarps; plateaus weather to one tone.
     albedo = mix(albedo, mix(uColRock, uColRockB, strata * mix(0.12, 0.6, steep) + 0.15), rocky);
 
-    // Snow line drops towards the poles; steep faces shed their snow.
-    float snowLine = mix(0.46, 0.06, smoothstep(0.15, 0.90, lat));
-    float snow = smoothstep(snowLine, snowLine + 0.08, bioH + aux.w * 0.04 + grain * 0.025)
-        * (1.0 - 0.75 * steep) * uSnow;
+    float snow = coverSnow(lat, bioH, aux.w, grain, steep);
     albedo = mix(albedo, uColSnow, snow);
 
     // Valleys sit darker than crests, down to the finest visible grain.
@@ -218,10 +207,7 @@ void main() {
     // Civilisation: the baked pattern of towns, metropolises and highways,
     // admitted only where the land is habitable and only after dark.
     if (uCityLights > 0.001 && night > 0.001) {
-      float lowland = (1.0 - smoothstep(0.10, 0.30, bioH)) * smoothstep(0.002, 0.012, landH);
-      float coastal = mix(0.45, 1.0, 1.0 - smoothstep(0.0, 0.10, bioH));
-      float temperate = (1.0 - smoothstep(0.62, 0.86, lat)) * mix(0.3, 1.0, smoothstep(0.25, 0.55, moist));
-      float habitable = lowland * coastal * temperate * (1.0 - ice) * (1.0 - snow);
+      float habitable = coverHabitable(lat, bioH, landH, moist, ice, snow);
       emissive += uColCity * (cover.z * 3.0) * habitable * night * uCityLights * 3.0;
     }
 
