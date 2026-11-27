@@ -8,10 +8,16 @@
 
 const TIERS = {
   //        cube-map faces (terrain, clouds, sky), ring strip, device pixel ratio cap,
-  //        longest side of a snapshot (capture.js)
-  high: { id: 'high', terrain: 1024, clouds: 768, sky: 512, ring: 2048, pixelRatio: 1.5, still: 4096 },
-  medium: { id: 'medium', terrain: 768, clouds: 512, sky: 384, ring: 2048, pixelRatio: 1.5, still: 3072 },
-  low: { id: 'low', terrain: 512, clouds: 384, sky: 256, ring: 1024, pixelRatio: 1.25, still: 2048 },
+  //        longest side of a snapshot (capture.js), and the flight (FLIGHT-PLAN.md
+  //        stage I): terrain split distance in patch edges, ground per cell of the
+  //        deepest level (m), volume-cloud steps (0: the shell only), lowest
+  //        clearance (m)
+  high: { id: 'high', terrain: 1024, clouds: 768, sky: 512, ring: 2048, pixelRatio: 1.5, still: 4096,
+    flight: { lodK: 2.5, cellMetres: 1.2, cloudSteps: 24, minClearance: 150 } },
+  medium: { id: 'medium', terrain: 768, clouds: 512, sky: 384, ring: 2048, pixelRatio: 1.5, still: 3072,
+    flight: { lodK: 2.2, cellMetres: 2.4, cloudSteps: 16, minClearance: 150 } },
+  low: { id: 'low', terrain: 512, clouds: 384, sky: 256, ring: 1024, pixelRatio: 1.25, still: 2048,
+    flight: { lodK: 1.8, cellMetres: 9.6, cloudSteps: 0, minClearance: 400 } },
 };
 
 function isAppleMobile() {
@@ -43,7 +49,7 @@ function isRecentAppleMobile() {
 
 /**
  * @param {number} maxCubeSize  largest cube-map face the GPU accepts
- * @returns {{id: string, terrain: number, clouds: number, sky: number, ring: number, pixelRatio: number, still: number}}
+ * @returns {{id: string, terrain: number, clouds: number, sky: number, ring: number, pixelRatio: number, still: number, flight: object}}
  */
 export function pickQuality(maxCubeSize = 4096) {
   let tier = TIERS.high;

@@ -113,7 +113,7 @@ export function createTerrain(uniforms, heightmap = null) {
   const front = new THREE.Plane();
   const planes = [];
   const stats = { patches: 0, nodes: 0, deepest: 0, maxLevel: 0 };
-  const settings = { lodK: LOD_K };
+  const settings = { lodK: LOD_K, cellMetres: CELL_METRES };
   let lodK = LOD_K;
   // Patches chosen this frame, drawn nearest first so the depth test rejects
   // the hidden ground before it is shaded (the pixel shader is the cost).
@@ -241,7 +241,7 @@ export function createTerrain(uniforms, heightmap = null) {
       high = RELIEF_KM.above / radiusKm;
       // The finer relief (GLSL_RELIEF_DETAIL) and the cache's own finer grain.
       slack = DETAIL_REACH + RELIEF_KM.grain / radiusKm;
-      maxLevel = Math.max(8, Math.round(Math.log2((Math.PI / 2) * radiusKm * 1000 / (TERRAIN_GRID * CELL_METRES))));
+      maxLevel = Math.max(8, Math.round(Math.log2((Math.PI / 2) * radiusKm * 1000 / (TERRAIN_GRID * settings.cellMetres))));
       stats.maxLevel = maxLevel;
       const r = Math.max(camLocal.length(), 1 + 1e-9);
       camDir = camLocal.clone().normalize();

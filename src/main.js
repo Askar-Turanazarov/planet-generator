@@ -101,6 +101,10 @@ async function start() {
   // Coarse copy of the relief on the CPU, read back after every bake (heightmap.js).
   const heightmap = createHeightmap(renderer, uniforms);
   const world = createWorld(uniforms, heightmap);
+  // The flight's share of the quality tier (quality.js): terrain detail and clouds.
+  world.terrain.settings.lodK = quality.flight.lodK;
+  world.terrain.settings.cellMetres = quality.flight.cellMetres;
+  uniforms.uCloudSteps.value = Math.max(quality.flight.cloudSteps, 1);
   // The ground the terrain actually draws, under the flying camera (null without float targets).
   const ground = createGroundProbe(renderer);
 
@@ -308,6 +312,7 @@ async function start() {
     under: 0,
     patience: 4,
     sinceRaise: 99,
+    phase: 0,                 // orbit / flight / flight in the cloud volume (see the frame)
   };
   function setAutoScale(scale) {
     scale = THREE.MathUtils.clamp(scale, MIN_AUTO_SCALE, 1);
@@ -633,7 +638,7 @@ async function start() {
     toast: (key) => cards.toast(key),
     env: {
       radiusKm: () => PRESETS[presetIndex].survey.radiusKm,
-      minClearanceM: () => 150,
+      minClearanceM: () => quality.flight.minClearance,
       clouds: () => ({ base: uniforms.uCloudBase.value, top: uniforms.uCloudTop.value, cover: state.cur.cloudCover }),
       groundAhead,
       target(kind) {
@@ -1411,7 +1416,17 @@ async function start() {
     // Clouds: the shell from afar, the volume below about 45 km (crossfade to 25 km).
     const cloudy = state.cur.cloudCover > 0.004;
     const altKm = (dist - 1) * PRESETS[presetIndex].survey.radiusKm;
-    const vol = flight.active && cloudy ? 1 - THREE.MathUtils.smoothstep(altKm, 25, 45) : 0;
+    // (The low tier keeps the shell: no volume to march.)
+    const vol = flight.active && cloudy && quality.flight.cloudSteps > 0 ? 1 - THREE.MathUtils.smoothstep(altKm, 25, 45) : 0;
+    // A new phase of the flight is a new load: let the governor judge it afresh.
+    const phase = (flight.active ? 1 : 0) + (vol > 0.001 ? 2 : 0);
+    if (phase !== governor.phase) {
+      governor.phase = phase;
+      governor.patience = 4;
+      governor.over = 0;
+      governor.under = 0;
+      governor.sinceRaise = 99;
+    }
     uniforms.uCloudVol.value = vol;
     world.clouds.visible = cloudy && vol < 0.999;
     world.cloudVolume.visible = vol > 0.001;
