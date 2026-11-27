@@ -13,12 +13,31 @@ const TIERS = {
   low: { id: 'low', terrain: 512, clouds: 384, sky: 256, ring: 1024, pixelRatio: 1.25 },
 };
 
-function isMobileDevice() {
+function isAppleMobile() {
   const ua = navigator.userAgent || '';
-  if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
-  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+  if (/iPhone|iPad|iPod/.test(ua)) return true;
   // iPadOS introduces itself as a Mac; a Mac with a multi-touch screen is an iPad.
   return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+}
+
+function isMobileDevice() {
+  if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+  return /Android|Mobile/i.test(navigator.userAgent || '') || isAppleMobile();
+}
+
+/**
+ * iPhone and iPad report neither their memory nor their model, and since
+ * iOS 26 the user agent no longer gives the system version either (it stays
+ * at "iPhone OS 18_6"). Two signs that do tell iOS 26 or later apart:
+ *   - WebGPU: every browser on iOS runs WebKit, which ships it from 26 on;
+ *   - the Safari version, which on iOS follows the system ("Version/26.0").
+ * iOS 26 runs on iPhone 11 / iPad (8th generation) and later: 4 GB of memory
+ * on every iPhone of them, and GPUs that carry the full caches comfortably.
+ */
+function isRecentAppleMobile() {
+  if ('gpu' in navigator) return true;
+  const safari = /Version\/(\d+)/.exec(navigator.userAgent || '');
+  return Boolean(safari && Number(safari[1]) >= 26);
 }
 
 /**
@@ -30,11 +49,16 @@ export function pickQuality(maxCubeSize = 4096) {
   const asked = new URLSearchParams(window.location.search).get('quality');
   if (asked && TIERS[asked]) {
     tier = TIERS[asked];
+  } else if (isAppleMobile()) {
+    tier = isRecentAppleMobile() ? TIERS.high : TIERS.medium;
   } else if (isMobileDevice()) {
-    // deviceMemory (GiB, Chromium only) is the one honest hint a page gets.
-    const memory = navigator.deviceMemory || 8;
+    // deviceMemory (GiB, Chromium only, capped at 8) is the one honest hint
+    // an Android page gets; 8 means a flagship-class phone or tablet.
+    const memory = navigator.deviceMemory;
     const phone = Math.min(window.screen.width, window.screen.height) < 600;
-    tier = memory <= 2 || (phone && memory <= 4) ? TIERS.low : TIERS.medium;
+    if (memory >= 8) tier = TIERS.high;
+    else if (memory && (memory <= 2 || (phone && memory <= 4))) tier = TIERS.low;
+    else tier = TIERS.medium;
   }
   const fit = (size) => Math.min(size, maxCubeSize);
   return { ...tier, terrain: fit(tier.terrain), clouds: fit(tier.clouds), sky: fit(tier.sky) };
