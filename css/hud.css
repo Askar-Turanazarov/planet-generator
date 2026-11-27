@@ -278,6 +278,32 @@ input:focus-visible,
   color: #0a0c10;
 }
 
+/* Locked by a mission of the photo expedition. */
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: 0.38;
+  cursor: default;
+  background: transparent;
+  border-color: var(--line, rgba(255, 255, 255, 0.14));
+}
+
+.btn[aria-pressed="true"]:disabled {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.92);
+}
+
+.param.locked {
+  opacity: 0.38;
+}
+
+.param.locked input {
+  cursor: default;
+}
+
+input:disabled {
+  cursor: default;
+}
+
 .btn .idx {
   flex: none;
   width: 16px;
@@ -600,7 +626,15 @@ body.cinematic #hud-toggle:focus-visible {
   margin-top: 12px;
 }
 
+/* Snapshot: the same look as Share, kept on the phone's View tab too. */
+.capture-btn {
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .share-btn svg,
+.capture-btn svg,
 .icon-btn svg {
   flex: none;
   width: 15px;
@@ -910,6 +944,96 @@ body.has-card .hints {
   border-color: var(--line-soft);
 }
 
+/* A photo from the album. */
+.card-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* A portrait still on a phone would push the verdict out of the card. */
+  max-height: 32vh;
+  object-fit: contain;
+  background: #000;
+  margin: 12px 0 0;
+  border: 1px solid var(--line-soft);
+}
+
+/* Conditions of a photo mission: a mark (stars), then the verdict. */
+.card-checks {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+}
+
+.card-checks li {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr);
+  column-gap: 8px;
+  padding-left: 8px;
+  box-shadow: inset 2px 0 0 var(--line);
+  text-wrap: pretty;
+}
+
+.card-checks .mark {
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.card-checks li.ok {
+  box-shadow: inset 2px 0 0 rgba(140, 220, 160, 0.9);
+}
+
+.card-checks li.fail {
+  box-shadow: inset 2px 0 0 rgba(240, 140, 120, 0.85);
+  color: var(--ink-dim);
+}
+
+/* The album: thumbnails, three to a row. */
+.card-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.card-thumb {
+  display: grid;
+  gap: 3px;
+  padding: 0 0 4px;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 1px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.card-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: #000;
+}
+
+.card-thumb:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--ink);
+}
+
+.card-thumb:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
 /* Buttons in a row; the primary one is filled. */
 .card-actions {
   display: flex;
@@ -1099,7 +1223,7 @@ body.has-card .hints {
     position: absolute;
     top: calc(var(--safe-t) + 12px);
     left: calc(var(--safe-l) + var(--pad));
-    right: calc(var(--safe-r) + var(--pad) + 100px);
+    right: calc(var(--safe-r) + var(--pad) + 148px);
     display: block;
     text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
   }
@@ -1162,6 +1286,11 @@ body.has-card .hints {
   .icon-btn svg {
     width: 20px;
     height: 20px;
+  }
+
+  /* Snapshot: one more icon to the left of Share. */
+  #capture-top {
+    right: calc(var(--safe-r) + 108px);
   }
 
   .icon-btn:focus-visible {
@@ -1314,11 +1443,11 @@ body.has-card .hints {
   }
 
   .topbar {
-    right: calc(var(--safe-r) + var(--rail-w) + var(--pad) + 48px);
+    right: calc(var(--safe-r) + var(--rail-w) + var(--pad) + 96px);
   }
 
   body[data-sheet] .topbar {
-    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + var(--pad) + 48px);
+    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + var(--pad) + 96px);
   }
 
   /* Share sits left of the rail, or of the drawer when it is open. */
@@ -1328,6 +1457,14 @@ body.has-card .hints {
 
   body[data-sheet] .icon-btn {
     right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + 8px);
+  }
+
+  #capture-top {
+    right: calc(var(--safe-r) + var(--rail-w) + 56px);
+  }
+
+  body[data-sheet] #capture-top {
+    right: calc(var(--safe-r) + var(--rail-w) + var(--drawer-w) + 56px);
   }
 
   /* The probe card: bottom left, clear of the rail and the drawer. */

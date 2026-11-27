@@ -2,6 +2,7 @@
 //
 //   #v=1&w=terran&s=4217&sea=0.62&c=0.612,0.220,0.758,3.60&a=1.234&m=41.30,69.24
 //   #v=1&tour=sky&step=3          (a step of a guided tour, see tours.js)
+//   #v=1&mission=dawn             (a mission of the photo expedition, see missions.js)
 //
 // Only what differs from the archetype goes in, which keeps links short and
 // lets them survive a later change of an archetype's defaults. The hash, not
@@ -59,6 +60,8 @@ const same = (a, b, digits) => Math.abs(a - b) < 0.5 * Math.pow(10, -digits) + 1
 export function encodeView(view) {
   // A tour step is a place of its own: the route says what is on screen.
   if (view.tour) return `#v=${LINK_VERSION}&tour=${view.tour.id}&step=${view.tour.step}`;
+  // So is a mission of the photo expedition (missions.js): it sets its own world.
+  if (view.mission) return `#v=${LINK_VERSION}&mission=${view.mission}`;
   const parts = [`v=${LINK_VERSION}`, `w=${view.preset.id}`];
   if (view.seed !== view.preset.seed) parts.push(`s=${view.seed}`);
   for (const key in SLIDERS) {
@@ -103,6 +106,11 @@ export function decodeView(hash, presets) {
     if (!/^[a-z]+$/.test(id)) return null;
     const step = params.get('step') === 'quiz' ? 'quiz' : Math.max(Math.floor(Number(params.get('step'))) || 1, 1) - 1;
     return { tour: { id, step } };
+  }
+  // #v=1&mission=dawn (a mission of the photo expedition).
+  if (params.has('mission')) {
+    const id = params.get('mission');
+    return /^[A-Za-z]+$/.test(id) ? { mission: id } : null;
   }
   const preset = presets.find((p) => p.id === params.get('w'));
   if (!preset) return null;

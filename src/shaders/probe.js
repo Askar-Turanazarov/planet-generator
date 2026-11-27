@@ -2,7 +2,8 @@
 // caches and with the same land-cover rules (GLSL_SURFACE) as the surface
 // shader, so a reading never disagrees with the picture.
 //
-// Draws three pixels into a small 8-bit target; probe.js reads them back.
+// Draws three pixels per point into a small 8-bit target (one row per point,
+// the directions come from a data texture); probe.js reads them back.
 //   px 0  (height hi, height lo, moisture, steepness)
 //   px 1  (cold, snow, ice, rock)
 //   px 2  (shore, vein, city lights, climate y)
@@ -26,7 +27,7 @@ uniform float uBiomeDatum;
 uniform float uRelief;
 uniform float uRidge;
 uniform float uEps;
-uniform vec3 uProbeDir;      // planet object space
+uniform sampler2D uProbeDirs; // row i: direction of point i, planet object space
 
 float probeElevation(vec3 p) {
   vec2 s = textureLod(uTerrainA, p, 0.0).xy;
@@ -34,7 +35,7 @@ float probeElevation(vec3 p) {
 }
 
 void main() {
-  vec3 p = normalize(uProbeDir);
+  vec3 p = normalize(texelFetch(uProbeDirs, ivec2(int(gl_FragCoord.y), 0), 0).xyz);
   float lat = abs(p.y);
   vec3 upAxis = abs(p.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
   vec3 T = normalize(cross(upAxis, p));

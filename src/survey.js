@@ -13,8 +13,8 @@ const LAPSE = 6.5;                // °C per km of altitude, as in Earth's air
 const LAVA_SEA_C = 1100;
 const LAVA_FLOW_C = 1050;
 
-/** Land-cover class, before the archetype renames it. */
-function classify(s, world) {
+/** Land-cover class, before the archetype renames it (also used by judge.js). */
+export function classify(s, world) {
   if (s.landH <= 0) {
     if (world.lavaSea) return 'lavaSea';
     if (s.ice > 0.5) return 'seaIce';

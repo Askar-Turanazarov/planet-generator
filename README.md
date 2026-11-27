@@ -35,6 +35,12 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
   deserts, Where people live, Kinds of worlds). Each one moves the camera, the sun and the sliders
   step by step, ends with three questions, and offers to bring your own world back. Progress is kept
   in the browser.
+- **Pictures**: the view without the interface, at twice the screen resolution (up to 4096 px),
+  with an optional caption (world, seed, date). A phone opens the share sheet, a computer downloads a PNG.
+- **Photo expedition**: eight picture missions in the **Worlds** tab (Dawn over the ocean, The
+  planet’s shadow on its rings, A cyclone up close, A thin crescent, …). The world is set, only some
+  sliders are free; the shutter rates the picture with one to three stars and says what each star
+  wanted. Pictures with stars go to an **Album** in the browser, each with a link back to its world.
 - **Links to worlds**: the address always holds the world on screen (archetype, seed, changed sliders,
   camera, marker). **Share** sends it from a phone or copies it on a computer; opening the link brings
   the same view back.
@@ -54,6 +60,7 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
 | Hide the interface (cinematic mode) | Key `H`, or the button at the bottom | The eye button |
 | Probe a point | Click the planet | Tap the planet (the card opens folded; tap it for details) |
 | Share the world | **Share** | The share button at the top |
+| Take a picture (or the shutter in a mission) | Key `P`, or **Take a picture** in the **View** tab | The camera button at the top |
 | Close the open section, then the card | `Esc` | Tap the active tab again; the cross on the card |
 
 Sliders: Sea Level, Mountain Relief, Polar Ice Coverage, Civilization Lights, Cloud Coverage,
@@ -174,6 +181,11 @@ src/survey.js              turns a probe reading into terrain kind, words and fi
 src/cards.js               the probe card and the toast
 src/tours.js               the five tour routes, as data
 src/tour.js                runs a tour: steps, questions, progress, the way back
+src/capture.js             the picture: a still at high resolution, the caption, share or download
+src/missions.js            the photo expedition missions, as data
+src/judge.js               rates a picture: geometry, the probe over the disc, the picture itself
+src/album.js               the album in IndexedDB
+src/expedition.js          runs a mission: brief, shutter, verdict, album, the way back
 src/link.js                the world in the address: encode, decode, write back
 src/shaders/               GLSL: shared chunks, bake passes, planet, probe, clouds, atmosphere, rings, sky
 tools/serve.mjs            static dev server
@@ -253,6 +265,12 @@ oʻzgaradi.
   va choʻllar, Odamlar qayerda yashaydi, Dunyolar qanday boʻladi). Har biri kamera, quyosh va
   slayderlarni qadam-baqadam suradi, oxirida uchta savol beradi va oʻz olamingni qaytarishni taklif
   qiladi. Natijalar brauzerda saqlanadi.
+- **Suratlar**: interfeyssiz koʻrinish, ekrandan ikki barobar aniqroq (4096 px gacha), xohlasangiz
+  yozuv bilan (olam, kalit, sana). Telefonda ulashish oynasi ochiladi, kompyuterda PNG yuklanadi.
+- **Fotoekspeditsiya**: **Olamlar** boʻlimida sakkizta surat topshirigʻi (Okean ustida tong, Sayyoraning
+  halqalardagi soyasi, Yaqindan siklon, Ingichka hilol, …). Olam belgilangan, faqat ayrim slayderlar
+  ochiq; zatvor suratni bir-uch yulduz bilan baholaydi va har bir yulduz nimani talab qilganini aytadi.
+  Yulduzli suratlar brauzerdagi **Albom**ga tushadi, har biri oʻz olamiga havola bilan.
 - **Olamga havola**: manzil satrida doim ekrandagi olam turadi (sayyora turi, kalit, oʻzgargan slayderlar,
   kamera, belgi). **Ulashish** telefonda havolani yuboradi, kompyuterda nusxalaydi; havolani ochish
   xuddi shu koʻrinishni qaytaradi.
@@ -272,6 +290,7 @@ oʻzgaradi.
 | Interfeysni yashirish (kino rejimi) | `H` klavishi yoki pastdagi tugma | Koʻz belgili tugma |
 | Nuqtani zond bilan oʻrganish | Sayyorani bosish | Sayyoraga tegish (kartochka yigʻilgan holda ochiladi; tafsilotlar uchun unga tegish) |
 | Olamni ulashish | **Ulashish** | Yuqoridagi ulashish tugmasi |
+| Suratga olish (topshiriqda — zatvor) | `P` klavishi yoki **Koʻrinish** boʻlimidagi **Suratga olish** | Yuqoridagi kamera tugmasi |
 | Ochiq boʻlimni, soʻng kartochkani yopish | `Esc` | Faol boʻlim tugmasini yana bir marta bosish; kartochkadagi xoch |
 
 Slayderlar: dengiz sathi, togʻ relyefi, qutb muzliklari, sivilizatsiya chiroqlari, bulutlilik,
@@ -397,6 +416,11 @@ src/survey.js              zond oʻlchovini joy turi, soʻzlar va raqamlarga ayl
 src/cards.js               zond kartochkasi va qisqa xabar
 src/tours.js               beshta ekskursiya yoʻnalishi, maʼlumot sifatida
 src/tour.js                ekskursiyani olib boradi: qadamlar, savollar, natija, olamni qaytarish
+src/capture.js             surat: yuqori aniqlikdagi kadr, yozuv, ulashish yoki yuklab olish
+src/missions.js            fotoekspeditsiya topshiriqlari, maʼlumot sifatida
+src/judge.js               suratni baholaydi: geometriya, disk boʻylab zond, suratning oʻzi
+src/album.js               IndexedDB dagi albom
+src/expedition.js          topshiriqni olib boradi: vazifa, zatvor, baho, albom, olamni qaytarish
 src/link.js                manzildagi olam: yozish, oʻqish, yangilash
 src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, zond, bulutlar, atmosfera, halqalar, osmon
 tools/serve.mjs            statik ishlab chiqish serveri
@@ -472,6 +496,12 @@ barcha huquqlar muallifda qoladi.
 - **Экскурсии**: пять маршрутов во вкладке **Миры** (Небо и закат, Тени колец, Лёд и пустыни, Где
   живут люди, Какими бывают миры). Каждый шаг за шагом ведёт камеру, солнце и слайдеры, в конце
   задаёт три вопроса и предлагает вернуть твой мир. Прогресс хранится в браузере.
+- **Снимки**: вид без интерфейса в двойном разрешении экрана (до 4096 px), по желанию с подписью
+  (мир, ключ, дата). На телефоне открывается лист «Поделиться», на компьютере скачивается PNG.
+- **Фотоэкспедиция**: восемь заданий-снимков во вкладке **Миры** (Рассвет над океаном, Тень планеты
+  на кольцах, Циклон вблизи, Тонкий серп, …). Мир задан, свободны только некоторые слайдеры; затвор
+  оценивает снимок от одной до трёх звёзд и объясняет, чего требовала каждая. Снимки со звёздами
+  попадают в **Альбом** в браузере, каждый со ссылкой на свой мир.
 - **Ссылки на миры**: в адресе страницы всегда записан мир на экране (архетип, ключ, изменённые
   слайдеры, камера, метка). **Поделиться** отправляет ссылку с телефона или копирует её на компьютере;
   по ссылке открывается тот же вид.
@@ -491,9 +521,10 @@ barcha huquqlar muallifda qoladi.
 | Скрыть интерфейс (кинорежим) | Клавиша `H` или кнопка внизу | Кнопка с глазом |
 | Узнать данные точки | Щелчок по планете | Касание планеты (карточка открывается свёрнутой; касание по ней — подробности) |
 | Поделиться миром | **Поделиться** | Кнопка «поделиться» вверху |
+| Сделать снимок (в задании — затвор) | Клавиша `P` или **Сделать снимок** во вкладке **Вид** | Кнопка с камерой вверху |
 | Закрыть открытый раздел, затем карточку | `Esc` | Ещё раз нажать на активную вкладку; крестик на карточке |
 
-Клавиши `H` и `R` работают и при русской раскладке.
+Клавиши `H`, `R` и `P` работают и при русской раскладке.
 
 Слайдеры: уровень моря, горный рельеф, полярный лёд, огни цивилизации, облачность, плотность
 атмосферы, оттенок атмосферы, кольца (есть или нет) и их наклон, угол солнца, скорость вращения,
@@ -614,6 +645,11 @@ src/survey.js              превращает показания зонда в
 src/cards.js               карточка зонда и всплывающее уведомление
 src/tours.js               пять маршрутов экскурсий в виде данных
 src/tour.js                ведёт экскурсию: шаги, вопросы, прогресс, возврат мира
+src/capture.js             снимок: кадр в высоком разрешении, подпись, «Поделиться» или скачивание
+src/missions.js            задания фотоэкспедиции в виде данных
+src/judge.js               оценивает снимок: геометрия, зонд по диску, сама картинка
+src/album.js               альбом в IndexedDB
+src/expedition.js          ведёт задание: вводная, затвор, оценка, альбом, возврат мира
 src/link.js                мир в адресе страницы: запись, чтение, обновление
 src/shaders/               GLSL: общие блоки, запекание, планета, зонд, облака, атмосфера, кольца, небо
 tools/serve.mjs            статический сервер для разработки

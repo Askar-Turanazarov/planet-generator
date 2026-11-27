@@ -8,6 +8,10 @@
 //     body,                                  narration (a tour step, a question)
 //     words, rows: [{ label, value }],       the probe's words and figures
 //     choices: [{ label, state, run }],      answers to pick from; state: '', 'right', 'wrong', 'off'
+//     image: { src, alt },                   a picture (a photo from the album)
+//     checks: [{ mark, ok, text }],          conditions with a mark (stars) and a verdict:
+//                                            ok true / false, or undefined while not judged
+//     gallery: [{ src, label, run }],        thumbnails to pick from (the album)
 //     why:  { label, text },                 an explanation
 //     hint: { label, text },                 a suggestion ("what if...")
 //     actions: [{ label, run, primary }],    buttons
@@ -38,6 +42,9 @@ export function createCards(i18n) {
   const actions = node('.card-actions');
   const text = node('.card-text');
   const note = node('.card-note');
+  const image = node('.card-image');
+  const checks = node('.card-checks');
+  const gallery = node('.card-gallery');
 
   const compact = window.matchMedia(COMPACT);
   let render = null;
@@ -102,6 +109,60 @@ export function createCards(i18n) {
   };
   choices.addEventListener('click', onButton);
   actions.addEventListener('click', onButton);
+  gallery.addEventListener('click', onButton);
+
+  function setImage(spec) {
+    const src = spec && spec.src ? spec.src : '';
+    if (image.getAttribute('src') !== src) {
+      if (src) image.src = src;
+      else image.removeAttribute('src');
+    }
+    image.alt = (spec && spec.alt) || '';
+    image.hidden = !src;
+  }
+
+  function setChecks(list) {
+    const items = list || [];
+    while (checks.children.length > items.length) checks.lastElementChild.remove();
+    items.forEach((item, i) => {
+      let li = checks.children[i];
+      if (!li) {
+        li = checks.appendChild(document.createElement('li'));
+        li.append(document.createElement('span'), document.createElement('span'));
+        li.firstElementChild.className = 'mark';
+      }
+      const className = item.ok === true ? 'ok' : item.ok === false ? 'fail' : '';
+      if (li.className !== className) li.className = className;
+      put(li.firstElementChild, item.mark);
+      put(li.lastElementChild, item.text);
+      li.hidden = false;
+    });
+    checks.hidden = items.length === 0;
+  }
+
+  // Thumbnails are rebuilt only when the list of pictures changes.
+  function setGallery(list) {
+    const items = list || [];
+    const key = items.map((item) => `${item.src}|${item.label}`).join('\n');
+    if (gallery.dataset.key !== key) {
+      gallery.dataset.key = key;
+      gallery.replaceChildren(...items.map((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'card-thumb';
+        const img = document.createElement('img');
+        img.src = item.src;
+        img.alt = '';
+        img.loading = 'lazy';
+        const caption = document.createElement('span');
+        caption.textContent = item.label;
+        button.append(img, caption);
+        return button;
+      }));
+    }
+    items.forEach((item, i) => { gallery.children[i].runAction = item.run; });
+    gallery.hidden = items.length === 0;
+  }
 
   function paint() {
     if (!render) return;
@@ -110,7 +171,10 @@ export function createCards(i18n) {
     put(kicker, spec.kicker);
     put(title, spec.title);
     put(summary, spec.summary);
+    setImage(spec.image);
     put(body, spec.body);
+    setChecks(spec.checks);
+    setGallery(spec.gallery);
     put(words, spec.words);
     setRows(spec.rows);
     setButtons(choices, spec.choices, 'card-choice');

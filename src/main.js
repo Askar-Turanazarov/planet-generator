@@ -9,10 +9,12 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createUniforms } from './uniforms.js';
 import { PRESETS, SLIDER_KEYS } from './presets.js';
 import { PlanetState, parseSeed } from './state.js';
-import { decodeView, isModified, createLinkWriter } from './link.js';
+import { decodeView, encodeView, isModified, createLinkWriter } from './link.js';
 import { createCards } from './cards.js';
 import { createTours } from './tour.js';
-import { createProbe } from './probe.js';
+import { createExpedition } from './expedition.js';
+import { createCapture } from './capture.js';
+import { createProbe, MAX_POINTS } from './probe.js';
 import { describePoint } from './survey.js';
 import { createWorld } from './world.js';
 import { CameraRig } from './camera.js';
@@ -408,6 +410,14 @@ async function start() {
   let presetIndex = 0;
   let worldSeed = PRESETS[0].seed;
   let tours = null;                 // the tour player (created with the cards, below)
+  let capture = null;               // the snapshot (created with the cards, below)
+  let expedition = null;            // the photo expedition (created with the cards, below)
+  /** A mission of the photo expedition holds the world: say so instead of changing it. */
+  const worldHeld = () => {
+    if (!expedition || !expedition.fixedWorld) return false;
+    cards.toast('toast.worldHeld');
+    return true;
+  };
   // The address follows the screen (see link.js); every change calls touch().
   const link = createLinkWriter(describeView);
   const LINK_AFTER_FLIGHT = 2300;   // ms: a camera flight lasts 2 s
@@ -419,6 +429,7 @@ async function start() {
     i18n,
     on: {
       preset(index) {
+        if (worldHeld()) return;
         if (tours.active) tours.abandon();
         const preset = PRESETS[index];
         presetIndex = index;
@@ -434,7 +445,8 @@ async function start() {
         link.touch();
       },
       camera(id) {
-        if (id === 'ring' && state.get('ringsOn') < 0.5) {
+        // (A mission that holds its world keeps its rings off: the camera just flies.)
+        if (id === 'ring' && state.get('ringsOn') < 0.5 && !(expedition && expedition.fixedWorld)) {
           state.set('ringsOn', 1);
           hud.setRings(true);
           hud.setModified(true);
@@ -455,6 +467,7 @@ async function start() {
         link.touch();
       },
       rings(enabled) {
+        if (worldHeld()) return;
         state.set('ringsOn', enabled ? 1 : 0);
         hud.setRings(enabled);
         hud.setModified(true);
@@ -468,10 +481,22 @@ async function start() {
       },
       // A sheet opened or closed, or the interface was hidden.
       layout: measureFraming,
+      capture() {
+        if (expedition && expedition.active) expedition.shoot();
+        else if (capture) capture.take();
+      },
+      caption(enabled) {
+        capture.caption = enabled;
+        hud.setCaption(enabled);
+      },
     },
   });
 
   function reseed(seed) {
+    if (worldHeld()) {
+      hud.setSeed(worldSeed);
+      return;
+    }
     if (tours.active) tours.abandon();
     worldSeed = seed;
     hud.setSeed(seed);
@@ -484,9 +509,11 @@ async function start() {
   // ------------------------------------------------------------------
   // The world in the address (link.js)
   // ------------------------------------------------------------------
-  /** What the address says: the tour step during a tour, else the world. */
+  /** What the address says: the tour step or the mission, else the world. */
   function describeView() {
-    return tours && tours.active ? { tour: tours.position } : worldView();
+    if (tours && tours.active) return { tour: tours.position };
+    if (expedition && expedition.active) return { mission: expedition.position };
+    return worldView();
   }
   function worldView() {
     const sliders = {};
@@ -551,7 +578,12 @@ async function start() {
       tours.start(view.tour.id, view.tour.step);
       return;
     }
+    if (view.mission) {
+      expedition.start(view.mission);
+      return;
+    }
     if (tours.active) tours.abandon();
+    if (expedition.active) expedition.abandon();
     applyView(view, false);
   });
 
@@ -597,6 +629,39 @@ async function start() {
   }
   document.getElementById('share').addEventListener('click', share);
   document.getElementById('share-top').addEventListener('click', share);
+
+  // ------------------------------------------------------------------
+  // Snapshot: the frame as a picture (capture.js)
+  // ------------------------------------------------------------------
+  capture = createCapture({
+    i18n,
+    cards,
+    host: {
+      renderStill: (pixelRatio, copy) => renderStill(pixelRatio, copy),
+      viewSize: () => ({ width: viewWidth, height: viewHeight }),
+      maxSide: Math.min(
+        quality.still,
+        renderer.capabilities.maxTextureSize,
+        gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+        ...gl.getParameter(gl.MAX_VIEWPORT_DIMS),
+      ),
+      ready: () => !dip && !baker.busy,
+      info: () => {
+        const view = worldView();
+        return {
+          presetId: view.preset.id,
+          name: i18n.t(`preset.${view.preset.id}.name`),
+          seed: view.seed,
+          custom: isModified(view),
+        };
+      },
+    },
+  });
+  hud.setCaption(capture.caption);
+  document.getElementById('capture-top').addEventListener('click', () => {
+    if (expedition && expedition.active) expedition.shoot();
+    else capture.take();
+  });
 
   // ------------------------------------------------------------------
   // Probe: tap the planet, read the ground there (probe.js, survey.js)
@@ -672,6 +737,7 @@ async function start() {
     }
     // Probed in the middle of a tour: the way back to it.
     if (tours && tours.active) actions.push({ label: t('tour.resume'), run: () => tours.resume() });
+    if (expedition && expedition.active) actions.push({ label: t('expedition.backToMission'), run: () => expedition.resume() });
     return {
       ...point,
       why: { label: t('probe.why'), text: point.why },
@@ -703,6 +769,7 @@ async function start() {
   function closeProbeCard() {
     clearMarker();
     if (tours.active) tours.resume();
+    else if (expedition.active) expedition.resume();
   }
   /** quiet: set by a tour, it shows a spot without opening the probe card. */
   function setMarker(dir, quiet = false) {
@@ -863,28 +930,148 @@ async function start() {
     if (tourSun.t >= 1) tourSun = null;
   }
 
+  /** A tour or a mission is over and its world stays: the sun back in range, the spin back on. */
+  function settleGuided(saved) {
+    tourSun = null;
+    const sun = state.get('sunAngle');
+    const inRange = THREE.MathUtils.euclideanModulo(sun, 360);
+    state.cur.sunAngle += inRange - sun;
+    state.set('sunAngle', inRange);
+    const spin = saved ? saved.rotSpeed : state.get('rotSpeed');
+    state.set('rotSpeed', spin);
+    hud.syncSliders({ sunAngle: inRange, rotSpeed: spin });
+    if (marker.quiet) clearMarker(true);
+  }
+  function restoreGuided(view) {
+    tourSun = null;
+    applyView(view, false);
+  }
+
   tours = createTours({
     i18n,
     cards,
     host: {
       snapshot: worldView,
-      restore(view) {
-        tourSun = null;
-        applyView(view, false);
-      },
+      restore: restoreGuided,
       stage: stageTour,
-      /** The tour is over and its world stays: the sun back in range, the spin back on. */
-      settle(saved) {
-        tourSun = null;
-        const sun = state.get('sunAngle');
-        const inRange = THREE.MathUtils.euclideanModulo(sun, 360);
-        state.cur.sunAngle += inRange - sun;
-        state.set('sunAngle', inRange);
-        const spin = saved ? saved.rotSpeed : state.get('rotSpeed');
-        state.set('rotSpeed', spin);
-        hud.syncSliders({ sunAngle: inRange, rotSpeed: spin });
-        if (marker.quiet) clearMarker(true);
+      settle: settleGuided,
+      changed: () => link.touch(),
+      sheetOff: () => hud.closeSheet(),
+      leave: () => { if (expedition && expedition.active) expedition.abandon(); },
+    },
+  });
+
+  // ------------------------------------------------------------------
+  // Photo expedition (missions.js: the missions, expedition.js: the player)
+  // ------------------------------------------------------------------
+  /** Put a mission on screen: its world (if it has one), a still planet, its viewpoint. */
+  function stageMission(mission, instant) {
+    tourSun = null;
+    if (marker.quiet) clearMarker(true);
+    const holdStill = () => {
+      state.set('rotSpeed', 0);
+      state.cur.rotSpeed = 0;
+      hud.syncSliders({ rotSpeed: 0 });
+    };
+    const aim = (jump) => {
+      const pose = cameraPose(mission.camera);
+      if (jump) {
+        rig.cancel();
+        rig.jumpTo(pose.dir, pose.dist);
+      } else rig.flyTo(pose.dir, pose.dist, TOUR_FLIGHT);
+    };
+    const preset = mission.world && PRESETS.find((p) => p.id === mission.world);
+    if (!preset) {
+      holdStill();
+      aim(instant);
+      return;
+    }
+    const sliders = { ...preset.sliders };
+    const rings = mission.rings ?? preset.rings;
+    const nextIndex = PRESETS.indexOf(preset);
+    const newWorld = nextIndex !== presetIndex || preset.seed !== worldSeed;
+    presetIndex = nextIndex;
+    worldSeed = preset.seed;
+    hud.setPreset(nextIndex);
+    hud.syncSliders(sliders);
+    hud.setRings(rings);
+    hud.setSeed(preset.seed);
+    hud.setModified(isModified({ preset, seed: preset.seed, sliders, rings }));
+    const apply = () => {
+      if (newWorld) state.applyPreset(preset);
+      for (const key of SLIDER_KEYS) state.set(key, sliders[key]);
+      state.set('ringsOn', rings ? 1 : 0);
+      holdStill();
+      if (newWorld || instant) {
+        state.snap();
+        state.update(0);
+      }
+      aim(newWorld || instant);
+    };
+    if (newWorld && !instant) dipTransition(apply, 0.55);
+    else apply();
+  }
+
+  /** The geometry of the picture being taken (judge.js, "shot"): call while the still's camera is set. */
+  function shotFacts() {
+    world.clouds.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    return {
+      camera: {
+        position: camera.position.clone(),
+        quaternion: camera.quaternion.clone(),
+        fovY: THREE.MathUtils.degToRad(camera.fov),
+        aspect: camera.aspect,
       },
+      sun: state.sunDir.clone(),
+      planetQuat: world.planet.quaternion.clone(),
+      ring: {
+        on: state.cur.ringsOn > 0.5,
+        normal: state.ringNormal.clone(),
+        inner: state.cur.ringInner,
+        outer: state.cur.ringOuter,
+      },
+      storms: state.storms.map((storm) => storm.dir.clone().applyQuaternion(world.clouds.quaternion)),
+      cloudCover: state.cur.cloudCover,
+      cloudRadius: uniforms.uCloudRadius.value,
+      world: {
+        lavaSea: state.cur.liquidEmissive > 0.3,
+        veinEmissive: state.cur.veinEmissive,
+        veinMix: state.cur.veinMix,
+        cityLights: state.cur.cityLights,
+        seaLevel: uniforms.uSeaLevel.value,
+        dry: false,
+      },
+    };
+  }
+
+  expedition = createExpedition({
+    i18n,
+    cards,
+    capture,
+    host: {
+      snapshot: worldView,
+      restore: restoreGuided,
+      settle: settleGuided,
+      stage: stageMission,
+      shot: shotFacts,
+      // The probe reads up to MAX_POINTS at once: the judge's grid goes in batches.
+      async sample(dirs) {
+        const readings = [];
+        for (let i = 0; i < dirs.length; i += MAX_POINTS) {
+          const part = await probe.sampleMany(dirs.slice(i, i + MAX_POINTS));
+          if (!part) return null;
+          readings.push(...part);
+        }
+        return readings;
+      },
+      worldLink: () => encodeView(worldView()),
+      openLink(hash) {
+        const view = decodeView(hash, PRESETS);
+        if (view) applyView(view, false);
+      },
+      lock: (spec) => hud.lock(spec),
+      leaveTour: () => { if (tours.active) tours.abandon(); },
       changed: () => link.touch(),
       sheetOff: () => hud.closeSheet(),
     },
@@ -902,7 +1089,7 @@ async function start() {
   // Initial world: the one in the address, else the first archetype.
   resize();
   const linked = decodeView(window.location.hash, PRESETS);
-  const linkedWorld = linked && !linked.tour ? linked : null;
+  const linkedWorld = linked && !linked.tour && !linked.mission ? linked : null;
   applyView(linkedWorld || {
     preset: PRESETS[0],
     seed: PRESETS[0].seed,
@@ -913,6 +1100,7 @@ async function start() {
   }, true);
   // A link to a tour step: the default world is "the user's", the tour starts on top.
   if (linked && linked.tour) tours.start(linked.tour.id, linked.tour.step, { instant: true });
+  if (linked && linked.mission) expedition.start(linked.mission, { instant: true });
   hud.syncSliders({ renderScale });
   baker.bakeSky();
   baker.requestWorld(0);
@@ -932,6 +1120,60 @@ async function start() {
   let frames = 0;
   let statClock = 0;
   let firstFrame = true;
+
+  /**
+   * Level of detail from the size of one pixel on the ground below the
+   * camera. The terrain cache covers the view from orbit; as the camera
+   * closes in, micro-relief octaves fade in once each is a few pixels wide.
+   * Returns how many octaves are on (for the telemetry).
+   */
+  function updateDetail() {
+    const dist = camera.position.length();
+    const tanHalfFov = (FIELD * viewHeight) / framing.span;   // the live field of view
+    const pixel = (2 * tanHalfFov * (dist - 1)) / renderer.domElement.height;
+    uniforms.uEps.value = Math.max(TERRAIN_STEP, pixel * 1.2);
+    let detailOctaves = 0;
+    DETAIL_WAVELENGTHS.forEach((wavelength, i) => {
+      const weight = THREE.MathUtils.smoothstep(wavelength / pixel, 2.5, 5.0);
+      uniforms.uDetail.value.setComponent(i, weight);
+      detailOctaves += weight;
+    });
+    uniforms.uCloudDetail.value = 1 - THREE.MathUtils.smoothstep(pixel, 0.0006, 0.0016);
+    return detailOctaves;
+  }
+
+  /**
+   * One still frame for the snapshot (capture.js): drawn at "pixelRatio",
+   * with the planet in the middle of the whole canvas (the interface is not
+   * in the picture, so it need not leave room for it), handed to copy() while
+   * it is still on the canvas, then everything is put back as it was.
+   */
+  function renderStill(pixelRatio, copy) {
+    const saved = { x: framing.x, y: framing.y, span: framing.span };
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(viewWidth, viewHeight, false);
+    composer.setPixelRatio(pixelRatio);
+    composer.setSize(viewWidth, viewHeight);
+    framing.x = 0;
+    framing.y = 0;
+    framing.span = Math.max(Math.min(viewHeight, viewWidth * FIELD_ASPECT), viewHeight * 0.3);
+    applyFraming();
+    updateDetail();
+    try {
+      composer.render(0);
+      copy(renderer.domElement);
+    } finally {
+      Object.assign(framing, saved);
+      resize();
+      framing.snap = false;            // resize() would jump to the target: keep any glide going
+      Object.assign(framing, saved);
+      applyFraming();
+      // The still took far longer than a frame: that says nothing about the steady load.
+      last = performance.now();
+      governor.time = 0;
+      governor.intervals = [];
+    }
+  }
 
   function frame(now) {
     // The simulation never steps more than 0.1 s at once; the governor gets
@@ -1000,20 +1242,8 @@ async function start() {
     world.rings.visible = state.cur.ringsOn > 0.003;
     world.clouds.visible = state.cur.cloudCover > 0.004;
 
-    // Level of detail from the size of one pixel on the ground below the
-    // camera. The terrain cache covers the view from orbit; as the camera
-    // closes in, micro-relief octaves fade in once each is a few pixels wide.
     const dist = camera.position.length();
-    const tanHalfFov = (FIELD * viewHeight) / framing.span;   // the live field of view
-    const pixel = (2 * tanHalfFov * (dist - 1)) / renderer.domElement.height;
-    uniforms.uEps.value = Math.max(TERRAIN_STEP, pixel * 1.2);
-    let detailOctaves = 0;
-    DETAIL_WAVELENGTHS.forEach((wavelength, i) => {
-      const weight = THREE.MathUtils.smoothstep(wavelength / pixel, 2.5, 5.0);
-      uniforms.uDetail.value.setComponent(i, weight);
-      detailOctaves += weight;
-    });
-    uniforms.uCloudDetail.value = 1 - THREE.MathUtils.smoothstep(pixel, 0.0006, 0.0016);
+    const detailOctaves = updateDetail();
 
     if (rendering) composer.render(dt);
     gpuEnd();
@@ -1072,7 +1302,7 @@ async function start() {
   };
   window.planetGenerator = {
     renderer, composer, camera, state, uniforms, world, rig, hud, baker, advance, perf, i18n, quality, framing,
-    probe, cards, link, marker, probeAt, setMarker, describeView, tours,
+    probe, cards, link, marker, probeAt, setMarker, describeView, tours, capture, renderStill, expedition, shotFacts,
   };
 }
 

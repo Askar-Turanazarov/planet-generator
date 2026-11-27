@@ -70,6 +70,9 @@ const TABS = [
   { id: 'system', icon: '<path d="M3 5.5h14M3 10h14M3 14.5h14"/><path d="M7 3.8v3.4M13 8.3v3.4M9 12.8v3.4" stroke-width="2.4"/>' },
 ];
 
+// A camera body with its lens, in the same hairline style.
+const CAMERA_ICON = '<path d="M2.5 6.5h3.2L7.2 4h5.6l1.5 2.5h3.2v9.5h-15z"/><circle cx="10" cy="11" r="3"/>';
+
 const TELEMETRY = ['fps', 'ms', 'gpu', 'res', 'quality', 'alt', 'phase', 'lod'];
 
 /**
@@ -78,7 +81,8 @@ const TELEMETRY = ['fps', 'ms', 'gpu', 'res', 'quality', 'alt', 'phase', 'lod'];
  * @param {Array}  opts.cameras   [{ id }]
  * @param {object} opts.i18n      text service from createI18n()
  * @param {object} opts.on        callbacks: preset(i), camera(id), param(key, value),
- *                                rings(bool), seed(text), randomize(), layout()
+ *                                rings(bool), seed(text), randomize(), layout(),
+ *                                capture(), caption(bool)
  */
 export function createHud({ presets, cameras, i18n, on }) {
   const sliders = new Map();        // key -> { input, output, format }
@@ -87,6 +91,7 @@ export function createHud({ presets, cameras, i18n, on }) {
   const languageButtons = [];
   let ringButtons = null;
   let seedInput = null;
+  let randomizeButton = null;
   let activePreset = 0;
   let modified = false;
   let statusKey = 'status.live';
@@ -180,6 +185,40 @@ export function createHud({ presets, cameras, i18n, on }) {
     cameraList.append(button);
   });
 
+  // ---- left panel: snapshot (the "postcard") ---------------------------
+  let captionButtons = null;
+  {
+    const group = el('div', 'group group-capture');
+    group.dataset.tab = 'view';
+    const title = el('div', 'group-title');
+    const titleText = el('span');
+    label(titleText, 'group.capture');
+    title.append(titleText, el('span', 'hotkey', 'P'));
+    const shoot = el('button', 'btn capture-btn');
+    shoot.type = 'button';
+    shoot.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${CAMERA_ICON}</svg>`;
+    const shootText = el('span');
+    label(shootText, 'capture.button');
+    paint(() => { shoot.title = t('capture.title'); });
+    shoot.append(shootText);
+    shoot.addEventListener('click', () => on.capture());
+    const wrap = el('div', 'switch');
+    wrap.setAttribute('role', 'group');
+    const off = el('button', 'btn');
+    const onBtn = el('button', 'btn');
+    off.type = 'button';
+    onBtn.type = 'button';
+    off.addEventListener('click', () => on.caption(false));
+    onBtn.addEventListener('click', () => on.caption(true));
+    label(off, 'capture.captionOff');
+    label(onBtn, 'capture.captionOn');
+    paint(() => wrap.setAttribute('aria-label', t('capture.caption')));
+    wrap.append(off, onBtn);
+    group.append(title, shoot, wrap);
+    cameraList.parentElement.after(group);
+    captionButtons = { off, on: onBtn };
+  }
+
   // ---- left panel: telemetry -------------------------------------------
   const statusNode = document.getElementById('tm-status');
   paint(() => {
@@ -225,6 +264,7 @@ export function createHud({ presets, cameras, i18n, on }) {
       });
       const randomize = el('button', 'btn');
       randomize.type = 'button';
+      randomizeButton = randomize;
       randomize.addEventListener('click', () => on.randomize());
       label(randomize, 'seed.randomize');
       paint(() => seedInput.setAttribute('aria-label', t('section.seed')));
@@ -362,6 +402,8 @@ export function createHud({ presets, cameras, i18n, on }) {
       setCinematic(!isCinematic());
     } else if (key === 'r') {
       on.randomize();
+    } else if (key === 'p') {
+      if (!e.repeat) on.capture();
     } else if (key >= '1' && key <= String(presets.length)) {
       on.preset(Number(key) - 1);
     }
@@ -392,6 +434,34 @@ export function createHud({ presets, cameras, i18n, on }) {
 
     setSeed(seed) {
       seedInput.value = String(seed);
+    },
+
+    /**
+     * Lock the controls a mission of the photo expedition does not allow.
+     * @param {{ allow: '*' | string[], world: boolean } | null} spec
+     *   allow  the sliders left free (the render scale always is)
+     *   world  true: the world is fixed (archetypes, seed and rings locked)
+     *   null unlocks everything.
+     */
+    lock(spec) {
+      const free = (key) => !spec || spec.allow === '*' || key === 'renderScale' || spec.allow.includes(key);
+      sliders.forEach((entry, key) => {
+        const locked = !free(key);
+        entry.input.disabled = locked;
+        entry.input.closest('.param').classList.toggle('locked', locked);
+      });
+      const fixed = Boolean(spec && spec.world);
+      presetButtons.forEach((button) => { button.disabled = fixed; });
+      seedInput.disabled = fixed;
+      randomizeButton.disabled = fixed;
+      ringButtons.off.disabled = fixed;
+      ringButtons.on.disabled = fixed;
+    },
+
+    /** Caption on snapshots: on or off. */
+    setCaption(enabled) {
+      captionButtons.off.setAttribute('aria-pressed', String(!enabled));
+      captionButtons.on.setAttribute('aria-pressed', String(enabled));
     },
 
     /** Highlight an archetype and show its identity block. */

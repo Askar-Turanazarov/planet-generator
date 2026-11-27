@@ -7,10 +7,11 @@
 // Append ?quality=high | medium | low to the address to override the choice.
 
 const TIERS = {
-  //        cube-map faces (terrain, clouds, sky), ring strip, device pixel ratio cap
-  high: { id: 'high', terrain: 1024, clouds: 768, sky: 512, ring: 2048, pixelRatio: 1.5 },
-  medium: { id: 'medium', terrain: 768, clouds: 512, sky: 384, ring: 2048, pixelRatio: 1.5 },
-  low: { id: 'low', terrain: 512, clouds: 384, sky: 256, ring: 1024, pixelRatio: 1.25 },
+  //        cube-map faces (terrain, clouds, sky), ring strip, device pixel ratio cap,
+  //        longest side of a snapshot (capture.js)
+  high: { id: 'high', terrain: 1024, clouds: 768, sky: 512, ring: 2048, pixelRatio: 1.5, still: 4096 },
+  medium: { id: 'medium', terrain: 768, clouds: 512, sky: 384, ring: 2048, pixelRatio: 1.5, still: 3072 },
+  low: { id: 'low', terrain: 512, clouds: 384, sky: 256, ring: 1024, pixelRatio: 1.25, still: 2048 },
 };
 
 function isAppleMobile() {
@@ -42,7 +43,7 @@ function isRecentAppleMobile() {
 
 /**
  * @param {number} maxCubeSize  largest cube-map face the GPU accepts
- * @returns {{id: string, terrain: number, clouds: number, sky: number, ring: number, pixelRatio: number}}
+ * @returns {{id: string, terrain: number, clouds: number, sky: number, ring: number, pixelRatio: number, still: number}}
  */
 export function pickQuality(maxCubeSize = 4096) {
   let tier = TIERS.high;

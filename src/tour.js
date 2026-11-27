@@ -10,6 +10,7 @@
 //   host.settle()              the tour is over and the world stays: let it spin again
 //   host.changed()             the tour moved on (rewrite the address)
 //   host.sheetOff()            close the phone sheet so the planet shows
+//   host.leave()               leave the photo expedition, if it is on (optional)
 
 import { TOURS } from './tours.js';
 
@@ -204,6 +205,7 @@ export function createTours({ i18n, cards, host }) {
   function start(id, index = 0, { instant = false } = {}) {
     const tour = TOURS.find((item) => item.id === id);
     if (!tour) return false;
+    if (host.leave) host.leave();             // another guided mode (the photo expedition)
     if (!run.tour) run.saved = host.snapshot();
     run.tour = tour;
     run.picked = [];

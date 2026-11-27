@@ -71,6 +71,10 @@
           <div class="group-title"><span data-i18n="group.tours">Tours</span><span data-i18n="group.toursHint">Guided</span></div>
           <div id="tour-list" class="rows"></div>
         </div>
+        <div class="group group-expedition" data-tab="worlds">
+          <div class="group-title"><span data-i18n="group.expedition">Photo expedition</span><span data-i18n="group.expeditionHint">Missions</span></div>
+          <div id="mission-list" class="rows"></div>
+        </div>
         <div class="group" data-tab="view">
           <div class="group-title"><span data-i18n="group.camera">Camera</span><span data-i18n="group.cameraHint">Fly-to</span></div>
           <div id="camera-list" class="grid2"></div>
@@ -96,10 +100,14 @@
       <span class="touch-only"><kbd data-i18n="hint.touchTapKey">Tap</kbd><span data-i18n="hint.tap">probe</span></span>
       <span class="mouse-only"><kbd>R</kbd><span data-i18n="hint.reseed">reseed</span></span>
       <span class="mouse-only"><kbd>H</kbd><span data-i18n="hint.cinematic">cinematic</span></span>
+      <span class="mouse-only"><kbd>P</kbd><span data-i18n="hint.capture">snapshot</span></span>
     </div>
 
-    <!-- Phone / tablet layout only: the share button, an icon next to the
-         hide / show one. -->
+    <!-- Phone / tablet layout only: snapshot and share, icons next to the
+         hide / show button. -->
+    <button id="capture-top" class="icon-btn" type="button" aria-label="Snapshot" data-i18n-aria="capture.button" title="Save this view as a picture (P)" data-i18n-title="capture.title">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 6.5h3.2L7.2 4h5.6l1.5 2.5h3.2v9.5h-15z"/><circle cx="10" cy="11" r="3"/></svg>
+    </button>
     <button id="share-top" class="icon-btn" type="button" aria-label="Share" data-i18n-aria="share.button" title="Copy a link to exactly this view" data-i18n-title="share.title">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12.5V3M6.5 6.5 10 3l3.5 3.5"/><path d="M6 9.5H4.5v7.5h11V9.5H14"/></svg>
     </button>
@@ -120,7 +128,10 @@
         <svg class="card-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>
       </button>
       <div id="card-more" class="card-more">
+        <img class="card-image" alt="" hidden>
         <p class="card-body"></p>
+        <ul class="card-checks" hidden></ul>
+        <div class="card-gallery" hidden></div>
         <p class="card-words"></p>
         <dl class="card-rows"></dl>
         <div class="card-choices"></div>
