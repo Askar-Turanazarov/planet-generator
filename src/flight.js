@@ -342,8 +342,10 @@ export function createFlightControl({ flight, camera, canvas, rig, i18n, toast, 
       settle.t += dt;
       if (settle.t > 0.25) {
         const want = flight.groundRadius + settle.agl;
-        rNow += (want - rNow) * (1 - Math.exp(-4 * dt));
-        flight.pos.setLength(rNow);
+        if (!settle.down || rNow > want) {
+          rNow += (want - rNow) * (1 - Math.exp(-4 * dt));
+          flight.pos.setLength(rNow);
+        }
       }
       if (settle.t > 2.5) settle = null;
     }
@@ -412,7 +414,7 @@ export function createFlightControl({ flight, camera, canvas, rig, i18n, toast, 
   // ---------------------------------------------------------------------------
   // Quick targets
 
-  let settle = null;   // { agl, t }: easing onto the probe's ground after goTo
+  let settle = null;   // { agl, t, down }: easing onto the probe's ground after goTo (down: only lower)
   function goTo(kind) {
     const found = env.target(kind);
     if (!found) {
@@ -427,14 +429,17 @@ export function createFlightControl({ flight, camera, canvas, rig, i18n, toast, 
       const { dir, radius } = found;
       const up = dir.clone();
       if (kind === 'peak') {
-        // A few kilometres off the summit, a little above it, facing it.
+        // A few kilometres off the summit, above it, facing it. A cell of the
+        // coarse grid is tens of kilometres wide, so its summit can be kilometres
+        // off the real ground either way: start high (never inside the slope),
+        // then ease down to 2.5 km over the real ground once the probe reads it.
         localFrame(up, east, north);
         const back = north.clone().multiplyScalar(-8000 * m1);
         const pos = up.clone().add(back).normalize();
-        flight.pos.copy(pos).multiplyScalar(radius + 900 * m1);
+        flight.pos.copy(pos).multiplyScalar(radius + 5000 * m1);
         pilot.heading = 0;
         pilot.pitch = -4 * DEG;
-        settle = null;
+        settle = { agl: 2500 * m1, t: 0, down: true };
       } else {
         const agl = (kind === 'city' ? 2000 : 1200) * m1;
         flight.pos.copy(up).multiplyScalar(radius + agl);

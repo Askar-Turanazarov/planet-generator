@@ -1,5 +1,7 @@
 // The judge of the photo expedition: what is in a picture, from data the
-// generator already has, and how many stars it earns (missions.js).
+// generator already has, and how many stars it earns (missions.js). Pictures
+// from orbit go through planRays / measure, pictures from the air through
+// planAirRays / measureAir (further down).
 //
 // A picture is described by its "shot": the camera that took it (always
 // looking at the planet's centre, so the planet sits in the middle of the
@@ -38,10 +40,10 @@ const v2 = new THREE.Vector3();
 const inverse = new THREE.Quaternion();
 const toPlanet = new THREE.Quaternion();
 
-/** Distance along a ray (unit direction) to the unit sphere, or -1. */
-function hitSphere(origin, dir) {
+/** Distance along a ray (unit direction) to a sphere at the origin (unit by default), or -1. */
+function hitSphere(origin, dir, radius = 1) {
   const b = origin.dot(dir);
-  const c = origin.lengthSq() - 1;
+  const c = origin.lengthSq() - radius * radius;
   const d = b * b - c;
   if (d < 0) return -1;
   const t = -b - Math.sqrt(d);
@@ -208,28 +210,7 @@ export function measure(shot, plan, samples, image = null) {
   m.iceShare = share(m.ice);
 
   // ---- the rings, and the planet's shadow on them ----
-  if (ring.on) {
-    const u = new THREE.Vector3(1, 0, 0);
-    if (Math.abs(u.dot(ring.normal)) > 0.9) u.set(0, 0, 1);
-    u.addScaledVector(ring.normal, -u.dot(ring.normal)).normalize();
-    const v = new THREE.Vector3().crossVectors(ring.normal, u);
-    const edgeOn = Math.abs(v1.copy(shot.camera.position).normalize().dot(ring.normal)) < Math.sin(THREE.MathUtils.degToRad(1.5));
-    const point = new THREE.Vector3();
-    for (let b = 0; b < RING_BANDS; b++) {
-      const r = ring.inner + ((ring.outer - ring.inner) * (b + 0.5)) / RING_BANDS;
-      for (let a = 0; a < RING_ANGLES; a++) {
-        const angle = (a / RING_ANGLES) * Math.PI * 2;
-        point.copy(u).multiplyScalar(Math.cos(angle) * r).addScaledVector(v, Math.sin(angle) * r);
-        const p = project(shot, frame, point);
-        if (!inFrame(frame, p) || occluded(shot, point)) continue;
-        m.ringPoints++;
-        const along = point.dot(shot.sun);
-        if (along < 0 && v2.copy(point).addScaledVector(shot.sun, -along).length() < 1) m.shadowOnRings++;
-      }
-    }
-    m.ringsVisible = m.ringPoints >= 8 && !edgeOn;
-    if (edgeOn) m.shadowOnRings = 0;
-  }
+  if (ring.on) Object.assign(m, ringSight(shot, frame));
 
   // ---- storms (cloud deck) ----
   if (shot.cloudCover >= 0.2) {
@@ -251,6 +232,33 @@ export function measure(shot, plan, samples, image = null) {
   m.terminator = terminatorCrossing(shot, frame);
   if (image) Object.assign(m, measureNightGlow(shot, frame, image));
   return m;
+}
+
+/** The rings in the picture: points of them in the frame, how many in the planet's shadow. */
+function ringSight(shot, frame) {
+  const ring = shot.ring;
+  const out = { ringPoints: 0, shadowOnRings: 0, ringsVisible: false };
+  const u = new THREE.Vector3(1, 0, 0);
+  if (Math.abs(u.dot(ring.normal)) > 0.9) u.set(0, 0, 1);
+  u.addScaledVector(ring.normal, -u.dot(ring.normal)).normalize();
+  const v = new THREE.Vector3().crossVectors(ring.normal, u);
+  const edgeOn = Math.abs(v1.copy(shot.camera.position).normalize().dot(ring.normal)) < Math.sin(THREE.MathUtils.degToRad(1.5));
+  const point = new THREE.Vector3();
+  for (let b = 0; b < RING_BANDS; b++) {
+    const r = ring.inner + ((ring.outer - ring.inner) * (b + 0.5)) / RING_BANDS;
+    for (let a = 0; a < RING_ANGLES; a++) {
+      const angle = (a / RING_ANGLES) * Math.PI * 2;
+      point.copy(u).multiplyScalar(Math.cos(angle) * r).addScaledVector(v, Math.sin(angle) * r);
+      const p = project(shot, frame, point);
+      if (!inFrame(frame, p) || occluded(shot, point)) continue;
+      out.ringPoints++;
+      const along = point.dot(shot.sun);
+      if (along < 0 && v2.copy(point).addScaledVector(shot.sun, -along).length() < 1) out.shadowOnRings++;
+    }
+  }
+  out.ringsVisible = out.ringPoints >= 8 && !edgeOn;
+  if (edgeOn) out.shadowOnRings = 0;
+  return out;
 }
 
 /**
@@ -324,6 +332,106 @@ function stormCloud(shot, frame, image, dir) {
   return seen > 0 ? bright / seen : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Pictures from the air (missions with "flight", FLIGHT-PLAN.md stage J): the
+// camera flies low and looks anywhere, so the disc grid above does not apply.
+// shot.flight carries the ground radius under the camera, the clearance (km)
+// and the base of the cloud deck. Judged: the height, the sun's height over
+// the camera's horizon, what lies under the camera and in the frame's centre
+// (probe), where the horizon runs, the ground's own lights and the rings.
+
+const AIR_GLOW_SUN = -4;   // degrees: the ground's lights are judged only with the sun below this
+
+/** Screen height (half-height units) of the horizon on the frame's centre column, or null. */
+function horizonRow(shot, frame) {
+  const up = shot.camera.position.clone().normalize();
+  const r = shot.camera.position.length();
+  // Sine of the horizon's elevation: below level by the dip, cos(dip) = ground / r.
+  const level = -Math.sqrt(Math.max(1 - (shot.flight.groundRadius / r) ** 2, 0));
+  const above = (y) => rayThrough(shot, frame, 0, y).dot(up) - level;
+  let lo = -1;
+  let hi = 1;
+  const a = above(lo);
+  if (Math.sign(a) === Math.sign(above(hi))) return null;
+  for (let k = 0; k < 30; k++) {
+    const mid = (lo + hi) / 2;
+    if (Math.sign(above(mid)) === Math.sign(a)) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** The rays to probe from the air: the ground under the camera and in the frame's centre. */
+export function planAirRays(shot) {
+  const frame = frameOf(shot);
+  toPlanet.copy(shot.planetQuat).invert();
+  const rays = [];
+  if (!shot.flight) return { rays, air: true };
+  const under = shot.camera.position.clone().normalize();
+  rays.push({ role: 'under', world: under, local: under.clone().applyQuaternion(toPlanet) });
+  const dir = rayThrough(shot, frame, 0, 0);
+  const t = hitSphere(shot.camera.position, dir, shot.flight.groundRadius);
+  if (t > 0) {
+    const world = shot.camera.position.clone().addScaledVector(dir, t);
+    rays.push({ role: 'center', world, local: world.clone().normalize().applyQuaternion(toPlanet) });
+  }
+  return { rays, air: true };
+}
+
+/** Everything the air checks look at (see planAirRays). */
+export function measureAir(shot, plan, samples, image = null) {
+  const frame = frameOf(shot);
+  const f = shot.flight;
+  const up = shot.camera.position.clone().normalize();
+  const m = {
+    air: Boolean(f),
+    altKm: f ? f.clearanceKm : null,
+    sunHeight: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(up.dot(shot.sun), -1, 1))),
+    under: null,
+    center: null,
+    belowClouds: false,
+    cover: shot.cloudCover,
+    horizon: { at: null, third: false },
+    glowShare: 0,
+    ringsVisible: false,
+    ringPoints: 0,
+  };
+  if (!f) return m;
+  m.belowClouds = shot.camera.position.length() < f.cloudBase;
+  plan.rays.forEach((ray, i) => {
+    const s = samples && samples[i];
+    if (s) m[ray.role] = classify({ ...s, landH: s.h0 - shot.world.seaLevel }, shot.world);
+  });
+  const y = horizonRow(shot, frame);
+  if (y !== null) {
+    const at = 0.5 - y / 2;
+    m.horizon = { at, third: Math.min(Math.abs(at - 1 / 3), Math.abs(at - 2 / 3)) <= THIRD_TOLERANCE };
+  }
+  if (shot.ring.on) Object.assign(m, ringSight(shot, frame));
+  const looksDown = plan.rays.some((ray) => ray.role === 'center');
+  if (image && m.sunHeight < AIR_GLOW_SUN && (y !== null || looksDown)) m.glowShare = groundGlow(image, y);
+  return m;
+}
+
+/** Share of the ground's pixels (below the horizon) that glow: cities, lava. */
+function groundGlow(image, horizonY) {
+  const { width, height, data } = image;
+  const top = horizonY === null ? 0 : Math.min(Math.max(Math.ceil(((1 - horizonY) / 2) * height) + 2, 0), height);
+  let seen = 0;
+  let lit = 0;
+  for (let sy = top; sy < height; sy++) {
+    for (let sx = 0; sx < width; sx++) {
+      const i = (sy * width + sx) * 4;
+      seen++;
+      if (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2] >= GLOW_LUMA) lit++;
+    }
+  }
+  return seen >= GLOW_MIN_NIGHT ? lit / seen : 0;
+}
+
+const PEAK_KINDS = ['mountains', 'snow', 'glacier'];
+const LAVA_KINDS = ['lavaSea', 'lavaFlow'];
+
 const pct = (x) => Math.round(x * 100);
 
 /** Each check: (metrics, spec) -> { ok, vars } (vars fill the texts). */
@@ -345,6 +453,17 @@ export const CHECKS = {
   nightShare: (m, c) => ({ ok: pct(m.nightShare) >= c.min, vars: { share: pct(m.nightShare) } }),
   daySliver: (m, c) => ({ ok: pct(m.dayShare) >= c.min && pct(m.dayShare) <= c.max, vars: { share: pct(m.dayShare) } }),
   terminatorThird: (m) => ({ ok: m.terminator.third, vars: { at: m.terminator.at === null ? '—' : pct(m.terminator.at) } }),
+  // From the air (measureAir); heights in km, the sun's height in degrees.
+  inAir: (m, c) => ({ ok: m.air && m.altKm <= c.max }),
+  altRange: (m, c) => ({ ok: m.air && m.altKm >= c.min && m.altKm <= c.max, vars: { alt: m.air ? m.altKm.toFixed(1) : '—' } }),
+  sunHeight: (m, c) => ({ ok: m.sunHeight >= c.min && m.sunHeight <= c.max, vars: { sun: Math.round(m.sunHeight) } }),
+  centerPeak: (m) => ({ ok: PEAK_KINDS.includes(m.center) }),
+  centerDunes: (m) => ({ ok: m.center === 'desert' }),
+  centerLava: (m) => ({ ok: LAVA_KINDS.includes(m.center) }),
+  belowClouds: (m, c) => ({ ok: m.air && m.belowClouds && pct(m.cover) >= c.min, vars: { cover: pct(m.cover) } }),
+  horizonThird: (m) => ({ ok: m.horizon.third, vars: { at: m.horizon.at === null ? '—' : pct(m.horizon.at) } }),
+  groundGlow: (m, c) => ({ ok: m.glowShare * 100 >= c.min }),
+  ringsInSky: (m) => ({ ok: m.air && m.ringsVisible }),
 };
 
 /**

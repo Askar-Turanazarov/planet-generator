@@ -20,7 +20,7 @@
 //   host.sheetOff()            close the phone sheet so the planet shows
 
 import { MISSIONS } from './missions.js';
-import { planRays, measure, judge, GLOW_WIDTH } from './judge.js';
+import { planRays, measure, planAirRays, measureAir, judge, GLOW_WIDTH } from './judge.js';
 import { createAlbum, shrink } from './album.js';
 import { deliver } from './capture.js';
 
@@ -329,9 +329,11 @@ export function createExpedition({ i18n, cards, capture, host }) {
     try {
       let shot = null;
       const still = capture.grab(() => { shot = host.shot(); });
-      const plan = planRays(shot);
+      const air = Boolean(mission.flight);
+      const plan = air ? planAirRays(shot) : planRays(shot);
       const samples = plan.rays.length ? await host.sample(plan.rays.map((ray) => ray.local)) : [];
-      const metrics = measure(shot, plan, samples, reducedPixels(still.canvas, GLOW_WIDTH));
+      const pixels = reducedPixels(still.canvas, GLOW_WIDTH);
+      const metrics = air ? measureAir(shot, plan, samples, pixels) : measure(shot, plan, samples, pixels);
       const verdict = judge(mission, metrics);
       if (run.mission !== mission) return;                 // left meanwhile
       dropResult();

@@ -6,6 +6,10 @@
 //   rings    true: rings on for the mission
 //   allow    sliders the user may move (the camera is always free); '*' for all
 //   camera   viewpoint the mission starts from (main.js, cameraPose)
+//   flight   a mission in the air (FLIGHT-PLAN.md stage J): the camera is
+//            taken down to the quick target { target: 'peak' | 'coast' | 'city' }
+//            (flight.js) and the picture is judged from the air (judge.js,
+//            measureAir); heights in km, the sun's height in degrees
 //   checks   conditions, each worth a star tier:
 //              star 1 — the subject is in the picture,
 //              star 2 — the light is right,
@@ -110,6 +114,90 @@ export const MISSIONS = [
       { id: 'terminator', star: 1 },
       { id: 'terminatorThird', star: 2 },
       { id: 'whole', star: 3 },
+    ],
+  },
+  // ---- in the air -------------------------------------------------------
+  {
+    id: 'ridgeSunset',
+    world: 'terran',
+    allow: ['sunAngle', 'cloudCover'],
+    camera: 'overview',
+    flight: { target: 'peak' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'centerPeak', star: 1 },
+      { id: 'altRange', star: 2, min: 1, max: 3 },
+      { id: 'sunHeight', star: 2, min: -2, max: 6 },
+      { id: 'horizonThird', star: 3 },
+    ],
+  },
+  {
+    id: 'underDeck',
+    world: 'terran',
+    allow: ['sunAngle', 'cloudCover'],
+    camera: 'overview',
+    flight: { target: 'coast' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'belowClouds', star: 1, min: 35 },
+      { id: 'sunHeight', star: 2, min: 5, max: 90 },
+      { id: 'horizonThird', star: 3 },
+    ],
+  },
+  {
+    id: 'cityNight',
+    world: 'terran',
+    allow: ['sunAngle', 'cityLights'],
+    camera: 'overview',
+    flight: { target: 'city' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'groundGlow', star: 1, min: 0.5 },
+      { id: 'altRange', star: 2, min: 1, max: 3.5 },
+      { id: 'sunHeight', star: 2, min: -90, max: -8 },
+      { id: 'horizonThird', star: 3 },
+    ],
+  },
+  {
+    id: 'duneLight',
+    world: 'arrakis',
+    allow: ['sunAngle'],
+    camera: 'overview',
+    flight: { target: 'peak' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'centerDunes', star: 1 },
+      { id: 'sunHeight', star: 2, min: 2, max: 15 },
+      { id: 'altRange', star: 3, min: 0.1, max: 2 },
+      { id: 'horizonThird', star: 3 },
+    ],
+  },
+  {
+    id: 'lavaClose',
+    world: 'mustafar',
+    allow: ['sunAngle', 'relief'],
+    camera: 'overview',
+    flight: { target: 'coast' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'centerLava', star: 1 },
+      { id: 'sunHeight', star: 2, min: -90, max: -6 },
+      { id: 'altRange', star: 3, min: 0.1, max: 3 },
+      { id: 'groundGlow', star: 3, min: 2 },
+    ],
+  },
+  {
+    id: 'ringRise',
+    world: 'kepler',
+    rings: true,
+    allow: ['sunAngle', 'ringTilt'],
+    camera: 'overview',
+    flight: { target: 'peak' },
+    checks: [
+      { id: 'inAir', star: 1, max: 10 },
+      { id: 'ringsInSky', star: 1 },
+      { id: 'sunHeight', star: 2, min: -6, max: 25 },
+      { id: 'horizonThird', star: 3 },
     ],
   },
 ];

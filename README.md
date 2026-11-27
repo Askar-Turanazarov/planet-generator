@@ -37,10 +37,18 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
   in the browser.
 - **Pictures**: the view without the interface, at twice the screen resolution (up to 4096 px),
   with an optional caption (world, seed, date). A phone opens the share sheet, a computer downloads a PNG.
-- **Photo expedition**: eight picture missions in the **Worlds** tab (Dawn over the ocean, The
-  planet’s shadow on its rings, A cyclone up close, A thin crescent, …). The world is set, only some
-  sliders are free; the shutter rates the picture with one to three stars and says what each star
-  wanted. Pictures with stars go to an **Album** in the browser, each with a link back to its world.
+- **Descent and flight**: **Descend to the surface** (the **View** tab) takes the camera from orbit
+  down through the atmosphere and the cloud layer to about 150 m above the ground in twelve seconds.
+  The planets keep their true size, so the relief is real geometry down to about a metre, the far
+  ridges fade into haze, and the clouds float 2 to 6 km up as volumes you can fly through. Two
+  characters of flight: **Plane** (always forward, banks into turns) and **Drone** (hovers, for
+  framing a picture). Quick targets jump to the highest peak, a coast or the brightest city at night.
+- **Photo expedition**: fourteen picture missions in the **Worlds** tab: eight from orbit (Dawn over
+  the ocean, The planet’s shadow on its rings, A cyclone up close, A thin crescent, …) and six in the
+  air (Sunset over the ridge, Under the cloud ceiling, Night city from 2 km, Dunes in slanting light,
+  Lava at night up close, Rings over the horizon). The world is set, only some sliders are free; the
+  shutter rates the picture with one to three stars and says what each star wanted. Pictures with
+  stars go to an **Album** in the browser, each with a link back to its world.
 - **Links to worlds**: the address always holds the world on screen (archetype, seed, changed sliders,
   camera, marker). **Share** sends it from a phone or copies it on a computer; opening the link brings
   the same view back.
@@ -62,6 +70,19 @@ or a phone. You pick an archetype, type a seed, and move sliders: the world resh
 | Share the world | **Share** | The share button at the top |
 | Take a picture (or the shutter in a mission) | Key `P`, or **Take a picture** in the **View** tab | The camera button at the top |
 | Close the open section, then the card | `Esc` | Tap the active tab again; the cross on the card |
+
+In flight:
+
+| Action | Mouse and keyboard | Touch screen |
+|---|---|---|
+| Speed (plane) / move forward and back (drone) | `W` / `S` | Plane: the **Speed** slider on the right; drone: the stick up and down |
+| Turn (plane) / move sideways (drone) | `A` / `D` | The stick left and right |
+| Look around, nose up and down | Drag, or the arrow keys | Plane: the stick up and down |
+| Height | Mouse wheel; `Q` / `E` in the drone | Drone: the **Up / down** slider on the right |
+| Steering scheme | — | **Stick** (default), **Tilt** (tilt the phone), **Tap** (tap the ground to fly there) |
+| Fly faster | Hold `Shift` | — |
+| Plane or drone | `F` | The switch in the flight panel |
+| Back to orbit | `O`, or **Back to orbit** | **Back to orbit** |
 
 Sliders: Sea Level, Mountain Relief, Polar Ice Coverage, Civilization Lights, Cloud Coverage,
 Atmosphere Density, Atmosphere Hue Shift, Rings On/Off and Ring Tilt, Sun Orbit Angle,
@@ -97,6 +118,14 @@ The caches that hold the procedural fields are sized to the device.
 | `high` | Desktops and laptops; iPhone and iPad on iOS 26 or later; Android devices reporting 8 GB of memory | 1024² | 768² | 512² | 1.5 |
 | `medium` | Other tablets and phones | 768² | 512² | 384² | 1.5 |
 | `low` | Phones reporting 4 GB of memory or less; any mobile device reporting 2 GB or less | 512² | 384² | 256² | 1.25 |
+
+In flight the tier also sets the detail of the ground and the clouds:
+
+| Tier | Ground cell | Volume clouds | Lowest flight |
+|---|---|---|---|
+| `high` | 1.2 m | 24 steps | 150 m |
+| `medium` | 2.4 m | 16 steps | 150 m |
+| `low` | 9.6 m | none (the cloud shell only) | 400 m |
 
 Add `?quality=high`, `?quality=medium` or `?quality=low` to the address to override the choice.
 The active tier is shown in the telemetry (**System** tab on mobile). On top of that, a resolution
@@ -187,7 +216,14 @@ src/judge.js               rates a picture: geometry, the probe over the disc, t
 src/album.js               the album in IndexedDB
 src/expedition.js          runs a mission: brief, shutter, verdict, album, the way back
 src/link.js                the world in the address: encode, decode, write back
-src/shaders/               GLSL: shared chunks, bake passes, planet, probe, clouds, atmosphere, rings, sky
+src/scenePass.js           draws the scene in three depth ranges: far sky, the air, the near ground
+src/terrain.js             the ground: a quadtree of patches on the cube-sphere (CDLOD)
+src/heightmap.js           a coarse height grid read back from the terrain cache, for culling and targets
+src/groundProbe.js         the height of the drawn ground under the camera, read from the GPU
+src/flightCamera.js        the camera below orbit: pose, descent and ascent
+src/flight.js              flight: plane and drone, keys, touch schemes, ground guard, telemetry, quick targets
+src/targets.js             finds the highest peak, a coast and the brightest city
+src/shaders/               GLSL: shared chunks, bake passes, planet, terrain, air, volume clouds, probe, atmosphere, rings, sky
 tools/serve.mjs            static dev server
 tools/build-single.mjs     single-file build
 tools/make-icons.mjs       icon generator
@@ -209,6 +245,14 @@ The shaders are compiled before the first frame without blocking the page: where
 supports parallel compilation (`KHR_parallel_shader_compile`), the drivers work in the background
 while the loading screen stays responsive.
 
+The ground is one small grid of vertices drawn many times: a quadtree on the faces of a cube splits
+where the camera is close and merges where it is far, so the same mesh serves the whole disc from
+orbit and a valley from 150 m. The large forms come from the baked cube map, the finer octaves are
+computed in the shaders at the size of a metre. Positions near the camera are kept relative to it,
+and the scene is drawn in three depth ranges (far sky, the air, the near ground), so nothing jitters
+or clips at any height. In flight the ground adds the air between it and the eye itself, and the
+clouds near their layer are ray-marched as volumes.
+
 ### Requirements and limitations
 
 - A browser with WebGL 2 and rendering to half-float textures: current Chrome, Edge, Firefox, Safari
@@ -219,7 +263,9 @@ while the loading screen stays responsive.
 - The layouts were verified in a desktop browser emulating phone and tablet sizes. Frame rate on real
   phones and tablets was not measured: the quality tiers and the resolution governor are sized with
   a margin, but only a run on the device shows the real figure.
-- Terrain is bump-mapped, not displaced: the silhouette of the planet is a smooth sphere.
+- Forms larger than about 10 km come from a cache of 1024² per cube face, so from low altitude the
+  far ridges are softer than the near ones.
+- Tilt steering and tap-to-fly need a real phone to check; they were not verified in emulation.
 - The Uzbek interface text was checked against reference terminology but not proofread by a native
   speaker.
 
@@ -267,8 +313,17 @@ oʻzgaradi.
   qiladi. Natijalar brauzerda saqlanadi.
 - **Suratlar**: interfeyssiz koʻrinish, ekrandan ikki barobar aniqroq (4096 px gacha), xohlasangiz
   yozuv bilan (olam, kalit, sana). Telefonda ulashish oynasi ochiladi, kompyuterda PNG yuklanadi.
-- **Fotoekspeditsiya**: **Olamlar** boʻlimida sakkizta surat topshirigʻi (Okean ustida tong, Sayyoraning
-  halqalardagi soyasi, Yaqindan siklon, Ingichka hilol, …). Olam belgilangan, faqat ayrim slayderlar
+- **Tushish va parvoz**: **Yuzaga tushish** (**Koʻrinish** boʻlimi) kamerani orbitadan atmosfera va
+  bulut qatlami orqali oʻn ikki soniyada yerdan taxminan 150 m balandlikka tushiradi. Sayyoralar
+  haqiqiy oʻlchamda: relyef taxminan bir metrgacha haqiqiy geometriya, uzoqdagi tizmalar tumanga
+  singib ketadi, bulutlar esa 2–6 km balandlikda hajmli boʻlib suzadi va ular orasidan uchib oʻtish
+  mumkin. Ikki xil parvoz: **Samolyot** (doim oldinga, burilishda qiyshayadi) va **Dron** (havoda
+  muallaq turadi, kadr tanlash uchun). Tezkor nishonlar eng baland choʻqqiga, sohilga yoki tunda eng
+  yorugʻ shaharga olib boradi.
+- **Fotoekspeditsiya**: **Olamlar** boʻlimida oʻn toʻrtta surat topshirigʻi: sakkiztasi orbitadan
+  (Okean ustida tong, Sayyoraning halqalardagi soyasi, Yaqindan siklon, Ingichka hilol, …) va oltitasi
+  havoda (Tizma ustida quyosh botishi, Bulut shifti ostida, 2 km dan tungi shahar, Qiya nurdagi
+  barxanlar, Tunda yaqindan lava, Ufq ustidagi halqalar). Olam belgilangan, faqat ayrim slayderlar
   ochiq; zatvor suratni bir-uch yulduz bilan baholaydi va har bir yulduz nimani talab qilganini aytadi.
   Yulduzli suratlar brauzerdagi **Albom**ga tushadi, har biri oʻz olamiga havola bilan.
 - **Olamga havola**: manzil satrida doim ekrandagi olam turadi (sayyora turi, kalit, oʻzgargan slayderlar,
@@ -292,6 +347,19 @@ oʻzgaradi.
 | Olamni ulashish | **Ulashish** | Yuqoridagi ulashish tugmasi |
 | Suratga olish (topshiriqda — zatvor) | `P` klavishi yoki **Koʻrinish** boʻlimidagi **Suratga olish** | Yuqoridagi kamera tugmasi |
 | Ochiq boʻlimni, soʻng kartochkani yopish | `Esc` | Faol boʻlim tugmasini yana bir marta bosish; kartochkadagi xoch |
+
+Parvozda:
+
+| Amal | Sichqoncha va klaviatura | Sensorli ekran |
+|---|---|---|
+| Tezlik (samolyot) / oldinga va orqaga (dron) | `W` / `S` | Samolyot: oʻngdagi **Tezlik** slayderi; dron: joystik yuqoriga va pastga |
+| Burilish (samolyot) / yonga siljish (dron) | `A` / `D` | Joystik chapga va oʻngga |
+| Atrofga qarash, burunni koʻtarish va tushirish | Sichqonchani tortish yoki strelkalar | Samolyot: joystik yuqoriga va pastga |
+| Balandlik | Sichqoncha gʻildiragi; dronda `Q` / `E` | Dron: oʻngdagi **Yuqoriga / pastga** slayderi |
+| Tezroq uchish | `Shift` ni bosib turish | — |
+| Boshqarish usuli | — | **Joystik** (asosiy), **Egish** (telefonni egish), **Teginish** (yerga tegib, oʻsha nuqtaga uchish) |
+| Samolyot yoki dron | `F` | Parvoz panelidagi almashtirgich |
+| Orbitaga qaytish | `O` yoki **Orbitaga** | **Orbitaga** |
 
 Slayderlar: dengiz sathi, togʻ relyefi, qutb muzliklari, sivilizatsiya chiroqlari, bulutlilik,
 atmosfera zichligi, atmosfera tusi, halqalar (bor yoki yoʻq) va ularning ogʻishi, quyosh burchagi,
@@ -328,6 +396,14 @@ Protsedurali maydonlar saqlanadigan keshlar hajmi qurilmaga qarab tanlanadi.
 | `high` | Kompyuter va noutbuklar; iOS 26 va undan yangi tizimdagi iPhone va iPad; xotirasi 8 GB deb xabar bergan Android qurilmalar | 1024² | 768² | 512² | 1,5 |
 | `medium` | Boshqa planshet va telefonlar | 768² | 512² | 384² | 1,5 |
 | `low` | Xotirasi 4 GB va undan kam deb xabar bergan telefonlar; 2 GB va undan kam har qanday mobil qurilma | 512² | 384² | 256² | 1,25 |
+
+Parvozda daraja yer va bulutlar tafsilotini ham belgilaydi:
+
+| Daraja | Yer katakchasi | Hajmli bulutlar | Eng past parvoz |
+|---|---|---|---|
+| `high` | 1,2 m | 24 qadam | 150 m |
+| `medium` | 2,4 m | 16 qadam | 150 m |
+| `low` | 9,6 m | yoʻq (faqat bulut qobigʻi) | 400 m |
 
 Tanlovni oʻzgartirish uchun manzil oxiriga `?quality=high`, `?quality=medium` yoki `?quality=low`
 qoʻshing. Amaldagi daraja telemetriyada koʻrsatiladi (mobil qurilmada — **Tizim** boʻlimida). Bundan
@@ -422,7 +498,14 @@ src/judge.js               suratni baholaydi: geometriya, disk boʻylab zond, su
 src/album.js               IndexedDB dagi albom
 src/expedition.js          topshiriqni olib boradi: vazifa, zatvor, baho, albom, olamni qaytarish
 src/link.js                manzildagi olam: yozish, oʻqish, yangilash
-src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, zond, bulutlar, atmosfera, halqalar, osmon
+src/scenePass.js           sahnani uch chuqurlik oraligʻida chizadi: uzoq osmon, havo, yaqin yer
+src/terrain.js             yer: kub-sferadagi yamoqlar toʻrtlik daraxti (CDLOD)
+src/heightmap.js           relyef keshidan oʻqilgan qoʻpol balandlik toʻri (kesish va nishonlar uchun)
+src/groundProbe.js         kamera ostidagi chizilgan yer balandligi, GPU dan oʻqiladi
+src/flightCamera.js        orbitadan pastdagi kamera: holat, tushish va koʻtarilish
+src/flight.js              parvoz: samolyot va dron, klavishlar, sensorli usullar, yerdan himoya, telemetriya, nishonlar
+src/targets.js             eng baland choʻqqi, sohil va eng yorugʻ shaharni topadi
+src/shaders/               GLSL: umumiy bloklar, kesh hisoblash, sayyora, yer, havo, hajmli bulutlar, zond, atmosfera, halqalar, osmon
 tools/serve.mjs            statik ishlab chiqish serveri
 tools/build-single.mjs     bitta faylga yigʻish
 tools/make-icons.mjs       belgilar generatori
@@ -444,6 +527,14 @@ Sheyderlar birinchi kadrdan oldin, sahifani toʻxtatmasdan kompilyatsiya qilinad
 kompilyatsiyani (`KHR_parallel_shader_compile`) qoʻllasa, drayverlar fonda ishlaydi, yuklanish
 ekrani esa javob berishda davom etadi.
 
+Yer — koʻp marta chiziladigan bitta kichik choʻqqilar toʻri: kub yuzlaridagi toʻrtlik daraxt kamera
+yaqin joyda boʻlinadi, uzoqda birlashadi, shuning uchun bitta toʻr orbitadan butun diskni ham,
+150 m dan vodiyni ham chizadi. Yirik shakllar pishirilgan kub kartadan olinadi, mayda oktavalar
+sheyderlarda metr oʻlchamida hisoblanadi. Kamera yaqinidagi nuqtalar kameraga nisbatan saqlanadi,
+sahna esa uch chuqurlik oraligʻida chiziladi (uzoq osmon, havo, yaqin yer) — shuning uchun hech
+qanday balandlikda tasvir titramaydi va kesilmaydi. Parvozda yer oʻzi bilan koʻz orasidagi havoni
+qoʻshadi, qatlam yaqinidagi bulutlar esa hajmli nur yurishi bilan chiziladi.
+
 ### Talablar va cheklovlar
 
 - WebGL 2 va half-float teksturalarga renderlashni qoʻllaydigan brauzer: Chrome, Edge, Firefox,
@@ -455,7 +546,10 @@ ekrani esa javob berishda davom etadi.
   Haqiqiy telefon va planshetlarda kadrlar chastotasi oʻlchanmagan: sifat darajalari va aniqlik
   boshqaruvchisi zaxira bilan tanlangan, ammo haqiqiy natijani faqat qurilmaning oʻzida ishga
   tushirish koʻrsatadi.
-- Relyef — bump (yorugʻlik orqali boʻrttirish), geometriya emas: sayyora chegarasi silliq sfera.
+- Taxminan 10 km dan yirik shakllar har bir kub yuzi uchun 1024² keshdan olinadi, shuning uchun
+  past balandlikdan uzoqdagi tizmalar yaqindagilardan yumshoqroq koʻrinadi.
+- Telefonni egib boshqarish va teginib uchish faqat haqiqiy telefonda tekshiriladi; taqlidda
+  tekshirilmagan.
 - Oʻzbekcha interfeys matni atamalar boʻyicha solishtirilgan, lekin til sohibi tomonidan
   tahrir qilinmagan.
 
@@ -498,8 +592,16 @@ barcha huquqlar muallifda qoladi.
   задаёт три вопроса и предлагает вернуть твой мир. Прогресс хранится в браузере.
 - **Снимки**: вид без интерфейса в двойном разрешении экрана (до 4096 px), по желанию с подписью
   (мир, ключ, дата). На телефоне открывается лист «Поделиться», на компьютере скачивается PNG.
-- **Фотоэкспедиция**: восемь заданий-снимков во вкладке **Миры** (Рассвет над океаном, Тень планеты
-  на кольцах, Циклон вблизи, Тонкий серп, …). Мир задан, свободны только некоторые слайдеры; затвор
+- **Спуск и полёт**: **Спуститься к поверхности** (вкладка **Вид**) за двенадцать секунд проводит
+  камеру с орбиты сквозь атмосферу и облачный слой примерно на 150 м над землёй. Планеты в настоящем
+  размере: рельеф — настоящая геометрия примерно до метра, дальние хребты тают в дымке, облака плывут
+  на высоте 2–6 км объёмом, сквозь который можно пролететь. Два характера полёта: **Самолёт** (всегда
+  вперёд, кренится в поворотах) и **Дрон** (зависает, чтобы выстроить кадр). Быстрые цели переносят
+  к высшей вершине, на побережье или к самому яркому городу ночью.
+- **Фотоэкспедиция**: четырнадцать заданий-снимков во вкладке **Миры**: восемь с орбиты (Рассвет над
+  океаном, Тень планеты на кольцах, Циклон вблизи, Тонкий серп, …) и шесть в атмосфере (Закат над
+  хребтом, Под облачным потолком, Ночной город с 2 км, Дюны в косом свете, Лава ночью вблизи, Кольца
+  над горизонтом). Мир задан, свободны только некоторые слайдеры; затвор
   оценивает снимок от одной до трёх звёзд и объясняет, чего требовала каждая. Снимки со звёздами
   попадают в **Альбом** в браузере, каждый со ссылкой на свой мир.
 - **Ссылки на миры**: в адресе страницы всегда записан мир на экране (архетип, ключ, изменённые
@@ -525,6 +627,19 @@ barcha huquqlar muallifda qoladi.
 | Закрыть открытый раздел, затем карточку | `Esc` | Ещё раз нажать на активную вкладку; крестик на карточке |
 
 Клавиши `H`, `R` и `P` работают и при русской раскладке.
+
+В полёте:
+
+| Действие | Мышь и клавиатура | Сенсорный экран |
+|---|---|---|
+| Скорость (самолёт) / вперёд и назад (дрон) | `W` / `S` | Самолёт: ползунок **Скорость** справа; дрон: джойстик вверх и вниз |
+| Поворот (самолёт) / вбок (дрон) | `A` / `D` | Джойстик влево и вправо |
+| Обзор, нос вверх и вниз | Тянуть мышью или стрелки | Самолёт: джойстик вверх и вниз |
+| Высота | Колесо мыши; `Q` / `E` в дроне | Дрон: ползунок **Вверх / вниз** справа |
+| Быстрее | Держать `Shift` | — |
+| Способ управления | — | **Джойстик** (по умолчанию), **Наклон** (наклонять телефон), **Касание** (коснуться земли — полёт к точке) |
+| Самолёт или дрон | `F` | Переключатель в полётной панели |
+| На орбиту | `O` или **На орбиту** | **На орбиту** |
 
 Слайдеры: уровень моря, горный рельеф, полярный лёд, огни цивилизации, облачность, плотность
 атмосферы, оттенок атмосферы, кольца (есть или нет) и их наклон, угол солнца, скорость вращения,
@@ -561,6 +676,14 @@ barcha huquqlar muallifda qoladi.
 | `high` | Компьютеры и ноутбуки; iPhone и iPad на iOS 26 и новее; Android-устройства, сообщающие о 8 ГБ памяти | 1024² | 768² | 512² | 1,5 |
 | `medium` | Остальные планшеты и телефоны | 768² | 512² | 384² | 1,5 |
 | `low` | Телефоны, сообщающие о 4 ГБ памяти и меньше; любые мобильные устройства с 2 ГБ и меньше | 512² | 384² | 256² | 1,25 |
+
+В полёте профиль задаёт ещё и детальность земли и облаков:
+
+| Профиль | Ячейка земли | Объёмные облака | Нижняя граница полёта |
+|---|---|---|---|
+| `high` | 1,2 м | 24 шага | 150 м |
+| `medium` | 2,4 м | 16 шагов | 150 м |
+| `low` | 9,6 м | нет (только оболочка облаков) | 400 м |
 
 Чтобы выбрать профиль вручную, добавьте к адресу `?quality=high`, `?quality=medium` или
 `?quality=low`. Действующий профиль показан в телеметрии (на мобильных — вкладка **Система**).
@@ -651,7 +774,14 @@ src/judge.js               оценивает снимок: геометрия, 
 src/album.js               альбом в IndexedDB
 src/expedition.js          ведёт задание: вводная, затвор, оценка, альбом, возврат мира
 src/link.js                мир в адресе страницы: запись, чтение, обновление
-src/shaders/               GLSL: общие блоки, запекание, планета, зонд, облака, атмосфера, кольца, небо
+src/scenePass.js           рисует сцену в трёх диапазонах глубины: дальнее небо, воздух, ближняя земля
+src/terrain.js             земля: квадродерево патчей на кубе-сфере (CDLOD)
+src/heightmap.js           грубая сетка высот из кэша рельефа — для отсечения и быстрых целей
+src/groundProbe.js         высота нарисованной земли под камерой, чтение с GPU
+src/flightCamera.js        камера ниже орбиты: поза, спуск и взлёт
+src/flight.js              полёт: самолёт и дрон, клавиши, сенсорные схемы, защита от земли, телеметрия, быстрые цели
+src/targets.js             находит высшую вершину, побережье и самый яркий город
+src/shaders/               GLSL: общие блоки, запекание, планета, земля, воздух, объёмные облака, зонд, атмосфера, кольца, небо
 tools/serve.mjs            статический сервер для разработки
 tools/build-single.mjs     сборка в один файл
 tools/make-icons.mjs       генератор иконок
@@ -673,6 +803,14 @@ docs/                      планы, идеи и перечень того, ч
 параллельную компиляцию (`KHR_parallel_shader_compile`), драйверы работают в фоне, а экран загрузки
 остаётся отзывчивым.
 
+Земля — одна маленькая сетка вершин, нарисованная много раз: квадродерево на гранях куба дробит её
+там, где камера близко, и укрупняет вдали, поэтому одна и та же сетка рисует весь диск с орбиты
+и долину с высоты 150 м. Крупные формы берутся из запечённой кубической карты, мелкие октавы
+считаются в шейдерах вплоть до метра. Точки рядом с камерой хранятся относительно неё, а сцена
+рисуется в трёх диапазонах глубины (дальнее небо, воздух, ближняя земля) — поэтому ни на какой
+высоте картинка не дрожит и не обрезается. В полёте земля сама добавляет воздух между собой и глазом,
+а облака у своего слоя рисуются объёмным лучевым маршем.
+
 ### Требования и ограничения
 
 - Браузер с WebGL 2 и рендером в half-float-текстуры: актуальные Chrome, Edge, Firefox, Safari
@@ -683,7 +821,10 @@ docs/                      планы, идеи и перечень того, ч
 - Раскладки проверены в десктопном браузере с эмуляцией размеров телефона и планшета. Частота кадров
   на настоящих телефонах и планшетах не измерялась: профили качества и регулятор разрешения выбраны
   с запасом, но реальную цифру покажет только запуск на устройстве.
-- Рельеф — bump, а не геометрия: силуэт планеты остаётся гладкой сферой.
+- Формы крупнее ~10 км берутся из кэша 1024² на грань куба, поэтому с малой высоты дальние хребты
+  мягче ближних.
+- Управление наклоном телефона и полёт по касанию проверяются только на настоящем телефоне;
+  в эмуляции они не проверены.
 - Узбекский текст интерфейса сверен по терминологии, но носителем языка не вычитан.
 
 ### Лицензия

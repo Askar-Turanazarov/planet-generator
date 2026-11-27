@@ -36,6 +36,7 @@ const FOV = 40;                   // vertical field of view the scene is compose
 // its height, and this many times its width (the planet with a margin).
 const FIELD_ASPECT = 1.16;
 const BAKE_BUDGET = 6;            // bake work per frame while the screen is dark
+const FLIGHT_STILL = 2560;        // longest side of a still taken in flight (capture.js)
 const MIN_AUTO_SCALE = 0.5;
 const GPU_SHARE = 0.8;            // part of a refresh interval the scene may spend on the GPU
 // Refresh rates the display estimate snaps to.
@@ -273,12 +274,16 @@ async function start() {
   // looking at, which says nothing about the GPU.
   const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   const gpu = { active: null, pending: [], sum: 0, count: 0, ms: 0 };
-  canvas.addEventListener('webglcontextlost', () => {
+  // Queries die with the context: drop them on loss and again on restore (the
+  // ones made while it was lost never answer, and would block the queue).
+  const dropQueries = () => {
     gpu.active = null;
     gpu.pending.length = 0;
-  });
+  };
+  canvas.addEventListener('webglcontextlost', dropQueries);
+  canvas.addEventListener('webglcontextrestored', dropQueries);
   function gpuBegin() {
-    if (!timerExt || gpu.active || gpu.pending.length >= 4) return;
+    if (!timerExt || gpu.active || gpu.pending.length >= 4 || gl.isContextLost()) return;
     gpu.active = gl.createQuery();
     gl.beginQuery(timerExt.TIME_ELAPSED_EXT, gpu.active);
   }
@@ -289,6 +294,7 @@ async function start() {
     gpu.active = null;
   }
   function gpuCollect() {
+    if (gl.isContextLost()) return;
     while (gpu.pending.length > 0) {
       const query = gpu.pending[0];
       if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) break;
@@ -711,8 +717,11 @@ async function start() {
     host: {
       renderStill: (pixelRatio, copy) => renderStill(pixelRatio, copy),
       viewSize: () => ({ width: viewWidth, height: viewHeight }),
-      maxSide: Math.min(
-        quality.still,
+      // A still is one frame: in flight (volume clouds, near detail) it costs
+      // several orbit frames per pixel, and a 4K one could outlast the GPU
+      // watchdog (about 2 s on Windows) on integrated graphics.
+      maxSide: () => Math.min(
+        flight.active ? Math.min(quality.still, FLIGHT_STILL) : quality.still,
         renderer.capabilities.maxTextureSize,
         gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
         ...gl.getParameter(gl.MAX_VIEWPORT_DIMS),
@@ -1005,6 +1014,7 @@ async function start() {
   /** A tour or a mission is over and its world stays: the sun back in range, the spin back on. */
   function settleGuided(saved) {
     tourSun = null;
+    pendingFlight = null;
     const sun = state.get('sunAngle');
     const inRange = THREE.MathUtils.euclideanModulo(sun, 360);
     state.cur.sunAngle += inRange - sun;
@@ -1015,6 +1025,7 @@ async function start() {
     if (marker.quiet) clearMarker(true);
   }
   function restoreGuided(view) {
+    pendingFlight = null;
     tourSun = null;
     applyView(view, false);
   }
@@ -1037,6 +1048,7 @@ async function start() {
   // Photo expedition (missions.js: the missions, expedition.js: the player)
   // ------------------------------------------------------------------
   /** Put a mission on screen: its world (if it has one), a still planet, its viewpoint. */
+  let pendingFlight = null;
   function stageMission(mission, instant) {
     tourSun = null;
     if (marker.quiet) clearMarker(true);
@@ -1046,6 +1058,17 @@ async function start() {
       hud.syncSliders({ rotSpeed: 0 });
     };
     const aim = (jump) => {
+      // A mission in the air goes down to its quick target once the world's
+      // relief is read (the frame, pendingFlight); one from orbit leaves the air.
+      if (mission.flight) {
+        pendingFlight = mission.flight.target;
+        if (flight.active) return;
+      } else if (flight.active) {
+        pendingFlight = null;
+        flight.release();
+        rig.controls.enabled = true;
+        flightControl.syncUi();
+      }
       const pose = cameraPose(mission.camera);
       if (jump) {
         rig.cancel();
@@ -1106,6 +1129,11 @@ async function start() {
       storms: state.storms.map((storm) => storm.dir.clone().applyQuaternion(world.clouds.quaternion)),
       cloudCover: state.cur.cloudCover,
       cloudRadius: uniforms.uCloudRadius.value,
+      flight: flight.active ? {
+        groundRadius: flight.groundRadius,
+        clearanceKm: flight.clearance * PRESETS[presetIndex].survey.radiusKm,
+        cloudBase: uniforms.uCloudBase.value,
+      } : null,
       world: {
         lavaSea: state.cur.liquidEmissive > 0.3,
         veinEmissive: state.cur.veinEmissive,
@@ -1395,6 +1423,10 @@ async function start() {
       heightmap.invalidate();
     }
     if (!heightmap.ready && !baker.busy) heightmap.read();
+    if (pendingFlight && heightmap.ready && !dip && !baker.busy) {
+      flightControl.goTo(pendingFlight);
+      pendingFlight = null;
+    }
     if (flight.active) updateGround();
     if (!dip) gpuBegin();
     baker.updateClouds(time);

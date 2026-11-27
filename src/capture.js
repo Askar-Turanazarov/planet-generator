@@ -68,7 +68,8 @@ export function createCapture({ i18n, cards, host }) {
   function stillRatio() {
     const { width, height } = host.viewSize();
     const screen = window.devicePixelRatio || 1;
-    return Math.min(2 * screen, host.maxSide / Math.max(width, height, 1));
+    const maxSide = typeof host.maxSide === 'function' ? host.maxSide() : host.maxSide;
+    return Math.min(2 * screen, maxSide / Math.max(width, height, 1));
   }
 
   /**
